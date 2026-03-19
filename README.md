@@ -31,14 +31,24 @@ Auto Production is an automation suite for **SolidWorks** using **Python** and t
 
 ## Usage
 
-### Launch Unified GUI
-To start the main application for DXF and STEP exports:
+### Launch Modernized GUI (Recommended)
+The new layered architecture is the current standard. Launch it via the root script:
+```bash
+# Via batch file (Windows)
+run.bat
+
+# Or directly with Python
+python main.py
+```
+
+### Launch Legacy Unified GUI
+The original application is still available in `tools/`:
 ```bash
 python tools/exporter/main.py
 ```
 
 ### Run Standalone DXF Exporter
-For the dedicated DXF export tool:
+For the dedicated legacy DXF export tool:
 ```bash
 python tools/dxf_exporter/main.py
 ```

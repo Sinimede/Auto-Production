@@ -57,5 +57,52 @@ class TestSolidWorksClient(unittest.TestCase):
         self.assertEqual(result, "success")
         self.assertEqual(mock_client.connect_called, 1)
 
+    def test_is_doc_dirty(self):
+        doc = MagicMock()
+        doc.GetSaveFlag = MagicMock(return_value=True)
+        self.assertTrue(self.client._is_doc_dirty(doc))
+        
+        doc.GetSaveFlag = MagicMock(return_value=False)
+        self.assertFalse(self.client._is_doc_dirty(doc))
+        
+        # Test tuple return
+        doc.GetSaveFlag = MagicMock(return_value=(True, 0))
+        self.assertTrue(self.client._is_doc_dirty(doc))
+
+    @patch('os.path.abspath')
+    @patch('os.path.normpath')
+    def test_open_assembly_resolved(self, mock_norm, mock_abs):
+        mock_norm.side_effect = lambda x: x
+        mock_abs.side_effect = lambda x: x
+        
+        self.client.sw = MagicMock()
+        self.client.sw.GetOpenDocumentByName.return_value = None
+        self.client.sw.ActiveDoc = None
+        self.client.sw.OpenDoc6.return_value = (MagicMock(), 0, 0)
+        
+        result_doc, was_opened = self.client.open_assembly_resolved("test.sldasm")
+        
+        self.assertTrue(was_opened)
+        self.client.sw.OpenDoc6.assert_called_with("test.sldasm", 2, 66, "", 0, 0)
+
+    @patch('os.path.abspath')
+    @patch('os.path.normpath')
+    def test_open_assembly_resolved_already_open_clean(self, mock_norm, mock_abs):
+        mock_norm.side_effect = lambda x: x
+        mock_abs.side_effect = lambda x: x
+        
+        path = "test.sldasm"
+        existing_doc = MagicMock()
+        existing_doc.GetSaveFlag = MagicMock(return_value=False) # Clean
+        
+        self.client.sw = MagicMock()
+        self.client.sw.GetOpenDocumentByName.return_value = existing_doc
+        self.client.sw.OpenDoc6.return_value = (MagicMock(), 0, 0)
+        
+        self.client.open_assembly_resolved(path)
+        
+        self.client.sw.CloseDoc.assert_called_with(path)
+        self.client.sw.OpenDoc6.assert_called()
+
 if __name__ == '__main__':
     unittest.main()

@@ -120,11 +120,6 @@ class StepService(BaseService):
             template_name, output_name, col_order, data_start_row = PROCESS_CONFIG[process_key]
             template_path = os.path.join(get_assets_dir(), template_name)
             
-            # Fallback for templates while assets/ is not populated (compatibility)
-            if not os.path.exists(template_path):
-                 from tools.exporter.paths import get_templates_dir
-                 template_path = os.path.join(get_templates_dir(), template_name)
-
             rows = [self.sw.get_part_data(p, all_parts) for p in parts]
             generate_excel(template_path, rows, os.path.join(out_dir, output_name), col_order, data_start_row)
             self._log(f"  OK    {output_name}")

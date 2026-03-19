@@ -80,6 +80,7 @@ class DxfService(BaseService):
 
             # Generate Excel
             if gen_excel:
+                from src.utils.path_utils import get_assets_dir
                 if laser_parts:
                     self._generate_excel_report("laser", laser_parts, all_parts, out_dir)
                 if protecoes_parts:
@@ -121,12 +122,7 @@ class DxfService(BaseService):
             from src.utils.path_utils import get_assets_dir
             template_name, output_name, col_order, data_start_row = PROCESS_CONFIG[process_key]
             
-            # Fallback for templates while assets/ is not populated
             template_path = os.path.join(get_assets_dir(), template_name)
-            if not os.path.exists(template_path):
-                 from tools.exporter.paths import get_templates_dir
-                 template_path = os.path.join(get_templates_dir(), template_name)
-
             rows = [self.sw.get_part_data(p, all_parts) for p in parts]
             out_path = os.path.join(out_dir, output_name)
             generate_excel(template_path, rows, out_path, col_order, data_start_row)

@@ -134,6 +134,42 @@ class SolidWorksClient:
         return doc, True
 
     @ensure_sw_connection
+    def open_assembly_resolved(self, path: str) -> Tuple[Any, bool]:
+        """
+        Opens the assembly in read-only resolved (non-lightweight) mode.
+        Closes any already-open instance first if it's clean.
+        """
+        RESOLVED_READONLY = 2 | 64 # ReadOnly | OverrideLoadLightweight
+        path = os.path.normpath(os.path.abspath(path))
+
+        # Check if already open
+        existing = self.sw.GetOpenDocumentByName(path)
+        if not existing:
+            active = self.sw.ActiveDoc
+            if active:
+                active_path = os.path.normpath(active.GetPathName())
+                if active_path.lower() == path.lower():
+                    existing = active
+
+        if existing:
+            if self._is_doc_dirty(existing):
+                raise RuntimeError(f"O assembly '{os.path.basename(path)}' tem alterações não guardadas. Guarde ou descarte as alterações antes de continuar.")
+            self.sw.CloseDoc(path)
+
+        # Open in resolved + read-only mode
+        result = self.sw.OpenDoc6(path, 2, RESOLVED_READONLY, "", 0, 0)
+        doc = result[0] if isinstance(result, tuple) else result
+        if not doc:
+            raise RuntimeError(f"Falha ao abrir assembly em modo resolvido: {path}")
+        return doc, True
+
+    def _is_doc_dirty(self, doc) -> bool:
+        """Checks if a document has unsaved changes."""
+        ref = doc.GetSaveFlag
+        val = ref() if callable(ref) else ref
+        return bool(val[0] if isinstance(val, tuple) else val)
+
+    @ensure_sw_connection
     def close_doc(self, path: str):
         self.sw.CloseDoc(path)
 

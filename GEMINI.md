@@ -22,7 +22,11 @@ This project is an automation suite for **SolidWorks** using **Python** and the 
 
 ### Key Commands
 
-- **Launch Unified GUI:**
+- **Launch Modernized GUI (Recommended):**
+  ```bash
+  run.bat
+  ```
+- **Launch Legacy Unified GUI:**
   ```bash
   python tools/exporter/main.py
   ```

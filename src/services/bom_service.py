@@ -23,7 +23,7 @@ class BomService(BaseService):
             self.sw.connect()
 
             self._log(f"A abrir assembly: {os.path.basename(asm_path)}")
-            asm_doc, was_opened_by_us = self.sw.open_assembly(asm_path)
+            asm_doc, was_opened_by_us = self.sw.open_assembly_resolved(asm_path)
 
             if include_bom:
                 self._generate_bom_flow(asm_doc, out_dir)
@@ -133,10 +133,6 @@ class BomService(BaseService):
             output_path = os.path.join(out_dir, "Perfis de Alumínio.xlsx")
             from src.utils.path_utils import get_assets_dir
             template_path = os.path.join(get_assets_dir(), "Perfis-de-Alumínio_template.xlsx")
-            
-            if not os.path.exists(template_path):
-                 from tools.exporter.paths import get_templates_dir
-                 template_path = os.path.join(get_templates_dir(), "Perfis-de-Alumínio_template.xlsx")
 
             generate_perfis(all_cut_list_items, output_path, template_path)
             self._log(f"  OK    Perfis de Alumínio.xlsx ({len(all_cut_list_items)} itens)")
