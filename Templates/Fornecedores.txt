@@ -1,0 +1,312 @@
+AIM SOLDER
+AND
+ABB
+Accuride
+Advantech
+Afag
+Allen-Bradley
+Amada
+Ammeraal beltech
+Amplicon
+Antistat
+Apex
+Aquaeden
+Asahi Yukizai
+ASS
+ASUS
+Asutec
+Ateq
+Atlas Copco
+Aventics
+Balluf
+Banner
+Barboflex
+Baumer
+Becker
+Beckhoff
+Beijer Electronics
+Bene inox
+Berger Lahr
+Blickle
+Bru y Rubio
+Bosch Automation
+Bosch Rexroth
+Boteco
+Burkert
+Burster
+CAB
+Captron
+Camozzi
+Casalmáquinas
+Cembre
+Cherry
+Chiaravalli
+Cognex
+Contrinex
+Coolens
+Datalogic
+DCM Sistemes
+Dell
+Deprag
+Desoutter
+De-Sta-Co
+Deimos
+Denso
+Di-Soric
+Dini Argeo
+Dirak
+Doceram
+Dopag
+DPV
+Dukane
+Dunkermotoren
+Eaton
+Efectoled
+Egana
+Eldon
+Electron
+Elesa
+Elesa+Ganter
+Elcom
+Elfin
+Emile Maurin
+Enidine
+Epson
+Ersa
+Ettinger
+Equinotec
+ETL
+Everett C.T.
+Euchner
+Fabory
+Fag
+Fanamol
+Fandis
+Fanuc
+Farnell
+Fasten
+Fath
+Faytech
+Fersilva
+Festo
+Fett
+Fibro
+Fitek
+Fixo
+Fixsolda
+Fli
+Footmaster
+Fortest
+Frezite
+FKK
+Gayner
+Gemalto
+Greenkinetics
+Greenlux
+Gewiss
+Goldl cke
+GomsiParts
+Good-Hand
+Gutekunst
+Gimatic
+Habasit
+Hager
+Hansen
+Harting
+Hasco
+Heidenhain
+Heitec
+Hiwin
+Hoffman
+HP
+Huco
+Huf
+Hypertronics
+IAI
+IBC
+IDE
+IDS
+IFM
+Igus
+IHS Handling
+IKO
+INA
+Infaimon
+Ingun
+Itec
+Item
+Itt
+Jacob
+Jaguar
+Juncor
+Jura-Schrauben
+JVL
+Keyence
+Kistler
+Kipp
+Kolver
+Kuka
+Lanema
+Lapp Kabel
+Lauda
+Legrand
+Legris
+Lenovo
+Lenze
+Leschhorn
+LMI Technologies
+Logitech
+Lumberg
+Lupatec
+Luxtar
+Lypsis
+L2W 
+Manutan
+Marbett
+Marchesini
+MayTeC
+Macsa
+Mauser
+Meanwell
+Mecanarte
+Megatron Elecktronik
+Menekes
+Merlin Gerin
+Metal Work
+Meusburger
+Misumi
+Mitutoyo
+Moeller
+Montech
+Murreletronik
+Mustek
+Neugart
+Nex Flow
+NB
+NBK
+Nicolau Rosa
+Nord
+Norelem
+NSK
+NTN
+Obo Bettermann
+OleoDinamica Marchesini
+OMC
+Omega
+Omron
+Omge
+Optibelt
+Opto Engineering
+Oriental Motor
+Panasonic
+Panduit
+Patlite
+Paulifer
+PCE
+Pemsa
+Pepperl+Fuchs
+Pfeiffer
+Phasa
+Philips
+Phoenix Contact
+Pilz
+Pinet
+PMA
+PMI
+Potermic
+Proface
+Promag
+Promess
+Purex
+Puzzle Advance
+Rabourdin
+Rad
+Reichelt
+Reiman
+Reiman
+Richco
+Rittal
+Rockwell
+Rodalg s
+Rohde & Schwarz
+Rolisa
+Rollon
+Rose
+Rose Krieger
+Rotex
+RS
+Ruwac
+RW
+Sato
+Satech
+Schaeffner
+Schmersal
+Schmidt
+Schneider
+Schunk
+Schrader
+Schroff	
+SEW
+Sejin
+Selfoil
+Sensopart
+Senstronic
+Shunk
+Sick
+Siemens
+SKF
+SMAC
+SMC
+SNR
+Special springs
+Socafluid
+Sofima
+Solartron
+Sonitek
+Sonorous
+Sove
+Staubli
+Stieber
+Supermagnete
+Sutafer
+Switchcraft
+Swagelok
+Syskomp
+Tecnitem
+Teknokol
+Tente
+Thenar
+THK
+Tironi
+Triplo W
+Troax
+Trumpf
+Turck
+Vanel
+Vetter
+Vibrant
+Vico
+Videojet
+Viewsonic
+Xecro
+Wago
+Waicon
+Walter-Praezision
+Wandres
+Weber
+Wemo
+Weidmuller
+Weintek
+Weiss
+Weller
+Wenglor
+Werma
+Wide Range
+Wittenstein Alpha
+Wiva
+Wolfgang Warmbier
+Woerner
+Yaskawa
+Zebra
+Zimmer
+Zitec

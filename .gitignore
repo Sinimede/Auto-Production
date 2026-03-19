@@ -1,0 +1,34 @@
+# SolidWorks
+~$*.SLDPRT
+~$*.SLDASM
+~$*.SLDDRW
+*.bak
+*.tmp
+.tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+ENV/
+
+# Build and Distribution
+build/
+dist/
+*.spec
+*.exe
+
+# IDEs
+.vscode/
+.idea/
+.gemini/
+
+# Project specific
+Resultados/
+*.xlsx
+!Templates/*.xlsx
+!assets/*.xlsx
