@@ -58,9 +58,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Copiar Templates para junto do executavel
-echo A copiar Templates...
-xcopy /E /I /Y Templates dist\AutoProduction\Templates >nul
+:: Copiar assets para junto do executavel
+echo A copiar assets...
+xcopy /E /I /Y assets dist\AutoProduction\assets >nul
 
 echo.
 echo ============================================================

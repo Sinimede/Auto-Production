@@ -64,6 +64,6 @@ Refer to `docs/project-guide.md` for exhaustive details on SW 2024 quirks.
 
 - `tools/`: Python implementation logic.
 - `docs/`: Technical guides, design specs, and implementation plans.
-- `Templates/`: Excel and SolidWorks templates for reports and BOMs.
+- `assets/`: Excel and SolidWorks templates for reports and BOMs (formerly Templates/).
 - `Resultados/`: Default output directory for exports.
 - `.tmp/`: Workspace for temporary file modifications (gitignored).

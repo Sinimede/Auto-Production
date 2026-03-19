@@ -57,7 +57,7 @@ run_post_process.bat
   - `fornecedores/`: Supplier management tools.
   - `post_process/`: Post-processing scripts.
 - `docs/`: Technical guides, design specs, and implementation plans.
-- `Templates/`: Excel and SolidWorks templates for reports and BOMs.
+- `assets/`: Excel and SolidWorks templates for reports and BOMs (formerly Templates/).
 - `Resultados/`: Default output directory for exports.
 
 ## Documentation
