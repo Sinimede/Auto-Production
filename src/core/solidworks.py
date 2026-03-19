@@ -117,7 +117,7 @@ class SolidWorksClient:
         # 1. Active Doc
         active = self.sw.ActiveDoc
         if active:
-            active_path = os.path.normpath(active.GetPathName())
+            active_path = os.path.normpath(self._safe_call(active, "GetPathName"))
             if active_path.lower() == path.lower():
                 return active, False
         
@@ -147,7 +147,7 @@ class SolidWorksClient:
         if not existing:
             active = self.sw.ActiveDoc
             if active:
-                active_path = os.path.normpath(active.GetPathName())
+                active_path = os.path.normpath(self._safe_call(active, "GetPathName"))
                 if active_path.lower() == path.lower():
                     existing = active
 
@@ -182,7 +182,7 @@ class SolidWorksClient:
         
         # Resolve Lightweight (Late binding required in SW 2024 for this specific method)
         try:
-            asm_raw = getattr(asm, "_dispobj_", None) or getattr(asm, "_oleobj_", None) or asm
+            asm_raw = self._get_raw_obj(asm)
             win32com.client.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
         except:
             pass
@@ -205,11 +205,18 @@ class SolidWorksClient:
         parts = []
         for comp in components:
             comp = self._wrap(comp, "IComponent2")
+            
+            # Skip suppressed
+            suppression = self._safe_call(comp, "GetSuppression")
+            if suppression is not None and int(suppression) == 0:
+                continue
+
             model = self._safe_call(comp, "GetModelDoc2")
             
             if not model:
                 try:
-                    comp.SetComponentState(4) # Resolve
+                    comp_raw = self._get_raw_obj(comp)
+                    win32com.client.Dispatch(comp_raw).SetComponentState(4) # Resolve
                     model = self._safe_call(comp, "GetModelDoc2")
                 except:
                     pass

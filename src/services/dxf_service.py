@@ -31,7 +31,7 @@ class DxfService(BaseService):
             self.sw.connect()
 
             self._log(f"A abrir assembly: {os.path.basename(asm_path)}")
-            asm_doc, was_opened_by_us = self.sw.open_assembly(asm_path)
+            asm_doc, was_opened_by_us = self.sw.open_assembly_resolved(asm_path)
 
             self._log("A percorrer componentes...")
             all_parts = self.sw.get_all_parts(asm_doc)
