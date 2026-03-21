@@ -1,10 +1,12 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFrame, QLabel, QVBoxLayout, QTreeView, QFileSystemModel, QTableView, QMenu, QMessageBox
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFrame, QLabel, QVBoxLayout, QTreeView, QFileSystemModel, QTableView, QMenu, QMessageBox, QToolBar
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QDir
 import os
 import stat
 from .file_table_model import FileTableModel
 from ..controllers.lock_controller import LockController
-from .dialogs import CheckInDialog
+from ..controllers.project_controller import ProjectController
+from .dialogs import CheckInDialog, NewProjectDialog
 
 class SWATMainWindow(QMainWindow):
     def __init__(self):
@@ -13,6 +15,15 @@ class SWATMainWindow(QMainWindow):
         self.resize(1200, 800)
         
         self.lock_controller = LockController()
+        self.project_controller = ProjectController()
+        
+        # Toolbar
+        self.toolbar = QToolBar("Main Toolbar")
+        self.addToolBar(self.toolbar)
+        
+        new_project_act = QAction("📁 New Project", self)
+        new_project_act.triggered.connect(self.on_new_project)
+        self.toolbar.addAction(new_project_act)
         
         # Central Widget
         central_widget = QWidget()
@@ -81,6 +92,19 @@ class SWATMainWindow(QMainWindow):
     def on_tree_clicked(self, index):
         path = self.tree_model.filePath(index)
         self.file_model.refresh(path)
+
+    def on_new_project(self):
+        dialog = NewProjectDialog(self)
+        if dialog.exec():
+            data = dialog.get_data()
+            try:
+                new_path = self.project_controller.create_project(
+                    data["client"], data["name"], data["order"]
+                )
+                QMessageBox.information(self, "Success", f"Project created at: {new_path}")
+                # Optional: Navigate to new path
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
 
     def on_table_context_menu(self, pos):
         index = self.file_view.indexAt(pos)
