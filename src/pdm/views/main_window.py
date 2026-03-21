@@ -3,6 +3,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QDir
 import os
 import stat
+import subprocess
 from .file_table_model import FileTableModel
 from ..controllers.lock_controller import LockController
 from ..controllers.project_controller import ProjectController
@@ -102,7 +103,6 @@ class SWATMainWindow(QMainWindow):
                     data["client"], data["name"], data["order"]
                 )
                 QMessageBox.information(self, "Success", f"Project created at: {new_path}")
-                # Optional: Navigate to new path
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
@@ -114,6 +114,7 @@ class SWATMainWindow(QMainWindow):
         file_data = self.file_model.files[index.row()]
         menu = QMenu()
         
+        # PDM Actions
         if not file_data["lock_info"]:
             check_out_act = menu.addAction("🔓 Check-Out")
             check_out_act.triggered.connect(lambda: self.check_out_file(file_data))
@@ -121,7 +122,21 @@ class SWATMainWindow(QMainWindow):
             check_in_act = menu.addAction("🔒 Check-In")
             check_in_act.triggered.connect(lambda: self.check_in_file(file_data))
             
+        menu.addSeparator()
+        
+        # Legacy Tools
+        if file_data["name"].lower().endswith('.sldasm'):
+            export_act = menu.addAction("🚀 Export (Legacy)...")
+            export_act.triggered.connect(lambda: self.launch_legacy_exporter(file_data))
+            
         menu.exec(self.file_view.viewport().mapToGlobal(pos))
+
+    def launch_legacy_exporter(self, file_data):
+        try:
+            script_path = os.path.abspath(os.path.join(os.getcwd(), "tools/exporter/main.py"))
+            subprocess.Popen(["python", script_path, "--path", file_data["path"]])
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to launch legacy exporter: {str(e)}")
 
     def check_out_file(self, file_data):
         path = file_data["path"]
@@ -141,7 +156,6 @@ class SWATMainWindow(QMainWindow):
             comment = dialog.get_comment()
             if self.lock_controller.unlock_file(path):
                 try:
-                    # Add to history (simple version for now)
                     conn = self.lock_controller.db.get_connection()
                     cursor = conn.cursor()
                     cursor.execute(
