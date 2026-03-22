@@ -32,3 +32,4 @@ Resultados/
 *.xlsx
 !Templates/*.xlsx
 !assets/*.xlsx
+.worktrees/
