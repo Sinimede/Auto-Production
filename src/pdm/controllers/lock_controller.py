@@ -21,18 +21,51 @@ class LockController:
             }
         return None
 
-    def log_history(self, file_path, action, user_id, comment=""):
+    def log_history(self, file_path, action, user_id, comment="", version=None):
         file_path = os.path.normpath(os.path.abspath(file_path))
         conn = self.db.get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO history (file_path, action, user_id, comment) VALUES (?, ?, ?, ?)",
-                (file_path, action, user_id, comment)
+                "INSERT INTO history (file_path, action, user_id, comment, version) VALUES (?, ?, ?, ?, ?)",
+                (file_path, action, user_id, comment, version)
             )
             conn.commit()
         except Exception as e:
             print(f"ERROR: Could not log history: {e}")
+        finally:
+            conn.close()
+
+    def get_file_metadata(self, file_path):
+        """Retrieve current metadata for a file."""
+        file_path = os.path.normpath(os.path.abspath(file_path))
+        conn = self.db.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT version, revision, last_synced_hash FROM file_metadata WHERE file_path = ?", (file_path,))
+            row = cursor.fetchone()
+            if row:
+                return {"version": row[0], "revision": row[1], "hash": row[2]}
+            return {"version": 1, "revision": "00", "hash": None}
+        finally:
+            conn.close()
+
+    def increment_version(self, file_path):
+        """Increment the version number in the database."""
+        file_path = os.path.normpath(os.path.abspath(file_path))
+        conn = self.db.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO file_metadata (file_path, version) VALUES (?, 2) "
+                "ON CONFLICT(file_path) DO UPDATE SET version = version + 1",
+                (file_path,)
+            )
+            conn.commit()
+            
+            # Return new version
+            cursor.execute("SELECT version FROM file_metadata WHERE file_path = ?", (file_path,))
+            return cursor.fetchone()[0]
         finally:
             conn.close()
 

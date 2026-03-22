@@ -1,15 +1,18 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFrame, QLabel, QVBoxLayout, QTreeView, QTableView, QMenu, QMessageBox, QToolBar, QFileDialog, QLineEdit, QTabWidget, QListWidget
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFrame, QLabel, QVBoxLayout, QTreeView, QTableView, QMenu, QMessageBox, QToolBar, QFileDialog, QLineEdit, QTabWidget, QListWidget, QProgressDialog
 from PyQt6.QtGui import QAction, QFileSystemModel
-from PyQt6.QtCore import Qt, QDir
+from PyQt6.QtCore import Qt, QDir, QThread
 import os
 import stat
 import subprocess
+import shutil
 from src.pdm.views.file_table_model import FileTableModel
 from src.pdm.controllers.lock_controller import LockController
 from src.pdm.controllers.project_controller import ProjectController
 from src.pdm.views.dialogs import CheckInDialog, NewProjectDialog
 from src.pdm.views.history_widget import HistoryWidget
 from src.pdm.views.data_card_widget import DataCardWidget
+from src.pdm.views.assembly_tree_widget import AssemblyTreeWidget
+from src.pdm.controllers.sync_worker import SyncWorker
 from src.core.solidworks import SolidWorksClient
 
 class SWATMainWindow(QMainWindow):
@@ -121,10 +124,13 @@ class SWATMainWindow(QMainWindow):
         
         self.data_card = DataCardWidget(self.lock_controller)
         self.data_card.sync_requested.connect(self.on_sync_data_card)
+        self.assembly_tree = AssemblyTreeWidget(self.lock_controller)
+        self.assembly_tree.sync_all_requested.connect(self.on_sync_all_tree)
         self.history_widget = HistoryWidget()
         self.where_used_list = QListWidget()
         
         self.tabs.addTab(self.data_card, "📇 Data Card")
+        self.tabs.addTab(self.assembly_tree, "🌳 Assembly Tree")
         self.tabs.addTab(self.where_used_list, "🔍 Where Used")
         self.tabs.addTab(self.history_widget, "📜 History")
         
@@ -158,10 +164,12 @@ class SWATMainWindow(QMainWindow):
             
             # Update Tabs
             self.data_card.load_file(file_path)
+            self.assembly_tree.load_assembly(file_path)
             self.history_widget.load_history(file_path)
             self.update_where_used(file_path)
         else:
             self.data_card.clear()
+            self.assembly_tree.load_assembly(None)
             self.history_widget.clear()
             self.where_used_list.clear()
 
@@ -270,7 +278,38 @@ class SWATMainWindow(QMainWindow):
         if dialog.exec():
             comment = dialog.get_comment()
             
-            # Sync with SW during check-in
+            # 1. Versioning Logic (Snapshot)
+            new_version = 1
+            try:
+                # Create .versions directory if it doesn't exist
+                folder = os.path.dirname(path)
+                version_dir = os.path.join(folder, ".versions")
+                if not os.path.exists(version_dir):
+                    os.makedirs(version_dir)
+                    # Try to hide the folder on Windows
+                    try: subprocess.run(['attrib', '+h', version_dir], check=False)
+                    except: pass
+                
+                # Increment version in DB
+                new_version = self.lock_controller.increment_version(path)
+                
+                # Create snapshot
+                filename = os.path.basename(path)
+                name, ext = os.path.splitext(filename)
+                archive_name = f"{name}_v{new_version:03d}{ext}"
+                archive_path = os.path.join(version_dir, archive_name)
+                
+                # Ensure the source is readable (might be restricted)
+                try: os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+                except: pass
+                
+                shutil.copy2(path, archive_path)
+                # Set archive to Read-Only
+                os.chmod(archive_path, stat.S_IREAD)
+            except Exception as e:
+                print(f"Versioning Error: {e}")
+
+            # 2. Sync with SW during check-in
             if path.lower().endswith(('.sldasm', '.sldprt')):
                 try:
                     # 1. Update references
@@ -280,18 +319,18 @@ class SWATMainWindow(QMainWindow):
                     # 2. Extract properties for Data Card
                     props = self.sw_client.get_custom_properties(path)
                     if props:
-                        # Map SW props to our DB fields (This part needs a helper)
+                        # Map SW props to our DB fields
                         self.sync_metadata_from_sw(path, props)
                 except Exception as e:
                     print(f"SW Sync Warning: {e}")
 
             if self.lock_controller.unlock_file(path):
-                self.lock_controller.log_history(path, "CHECKIN", self.file_model.current_user, comment)
+                self.lock_controller.log_history(path, "CHECKIN", self.file_model.current_user, comment, version=new_version)
                 try:
                     if os.path.exists(path): os.chmod(path, stat.S_IREAD)
                 except: pass
                 self.file_model.refresh()
-                QMessageBox.information(self, "Success", f"File {file_data['name']} checked-in.")
+                QMessageBox.information(self, "Success", f"File {file_data['name']} checked-in as Version {new_version}.")
 
     def sync_metadata_from_sw(self, file_path, props):
         # Helper to push SW props to SQLite
@@ -319,49 +358,95 @@ class SWATMainWindow(QMainWindow):
         self.tabs.setCurrentIndex(1) # Switch to Where Used tab
 
     def on_sync_data_card(self, file_path):
-        """Fetches metadata from SolidWorks and updates the Data Card."""
+        """Fetches metadata from SolidWorks in background."""
+        # 1. Hashing Check (Avoid work if file hasn't changed since last sync)
+        current_hash = self.sw_client.get_file_hash(file_path)
+        conn = self.lock_controller.db.get_connection()
+        cached_hash = None
         try:
-            # 1. Hashing Check (Avoid work if file hasn't changed since last sync)
-            current_hash = self.sw_client.get_file_hash(file_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT last_synced_hash FROM file_metadata WHERE file_path = ?", (file_path,))
+            row = cursor.fetchone()
+            if row: cached_hash = row[0]
+        finally:
+            conn.close()
+
+        if cached_hash and current_hash == cached_hash:
+            self.data_card.load_file(file_path)
+            return
+
+        # 2. Start Async Sync
+        self.start_batch_sync([file_path])
+
+    def on_sync_all_tree(self, assembly_path):
+        """Recursively syncs metadata for all components in the assembly."""
+        all_deps = set()
+        all_deps.add(assembly_path)
+        
+        def collect_deps(parent):
             conn = self.lock_controller.db.get_connection()
-            cached_hash = None
             try:
                 cursor = conn.cursor()
-                cursor.execute("SELECT last_synced_hash FROM file_metadata WHERE file_path = ?", (file_path,))
-                row = cursor.fetchone()
-                if row: cached_hash = row[0]
+                cursor.execute("SELECT child_path FROM file_references WHERE parent_path = ?", (parent,))
+                children = cursor.fetchall()
+                for c in children:
+                    if c[0] not in all_deps:
+                        all_deps.add(c[0])
+                        collect_deps(c[0])
             finally:
                 conn.close()
+                
+        collect_deps(assembly_path)
+        self.start_batch_sync(list(all_deps))
 
-            if cached_hash and current_hash == cached_hash:
-                # No change since last sync
-                self.data_card.load_file(file_path)
-                # QMessageBox.information(self, "Success", "Metadata is already up to date (cached).")
-                return
+    def start_batch_sync(self, file_paths):
+        """Starts a background sync worker for the given paths."""
+        if not file_paths: return
 
-            # 2. Check if file is open in SW (if it is, we MUST use the slow method to get real-time values)
-            is_open = False
-            if self.sw_client.sw:
-                is_open = self.sw_client.sw.GetOpenDocumentByName(file_path) is not None
+        # Create thread and worker
+        self.sync_thread = QThread()
+        self.sync_worker = SyncWorker(file_paths, self.lock_controller)
+        self.sync_worker.moveToThread(self.sync_thread)
+        
+        # Connect signals
+        self.sync_thread.started.connect(self.sync_worker.run)
+        self.sync_worker.finished.connect(self.on_sync_finished)
+        self.sync_worker.error.connect(self.on_sync_error)
+        self.sync_worker.progress.connect(self.on_sync_progress)
+        
+        self.sync_worker.finished.connect(lambda: None) # Placeholder to keep it alive
+        self.sync_thread.finished.connect(self.sync_thread.deleteLater)
+        
+        # Show progress
+        self.progress_dialog = QProgressDialog("Connecting to SolidWorks...", "Cancel", 0, len(file_paths), self)
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.canceled.connect(self.sync_worker.cancel)
+        self.progress_dialog.setMinimumDuration(500) # Only show if it takes > 0.5s
+        self.progress_dialog.show()
+        
+        self.sync_thread.start()
 
-            if not is_open:
-                # 3. Use Fast Method (olefile) for closed files
-                props = self.sw_client.get_custom_properties_fast(file_path)
-                if props:
-                    self.sync_metadata_from_sw(file_path, props)
-                    self.data_card.load_file(file_path)
-                    if len(props) >= 3: return
+    def on_sync_progress(self, path, current, total):
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.setValue(current)
+            self.progress_dialog.setLabelText(f"Syncing ({current}/{total}): {os.path.basename(path)}")
 
-            # 4. Fallback to Slow Method (SolidWorks COM)
-            if not self.sw_client.sw:
-                self.sw_client.connect()
+    def on_sync_finished(self, path, props):
+        self.sync_metadata_from_sw(path, props)
+        
+        # Update UI if this file is selected
+        indices = self.file_view.selectionModel().selectedRows()
+        if indices:
+            index = indices[0]
+            selected_path = self.file_model.files[index.row()]['path']
+            if selected_path == path:
+                self.data_card.load_file(path)
+        
+        # If it was a batch sync and it's the last one
+        if hasattr(self, 'progress_dialog') and self.progress_dialog.value() >= self.progress_dialog.maximum() - 1:
+            self.file_model.refresh()
+            if self.assembly_tree.current_path:
+                self.assembly_tree.load_assembly(self.assembly_tree.current_path)
 
-            props = self.sw_client.get_custom_properties(file_path)
-            if props:
-                self.sync_metadata_from_sw(file_path, props)
-                self.data_card.load_file(file_path)
-                # QMessageBox.information(self, "Success", "Metadata synced from SolidWorks successfully.")
-            else:
-                QMessageBox.warning(self, "Warning", "No custom properties found. Make sure the file is a valid SolidWorks document.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to sync with SolidWorks: {str(e)}")
+    def on_sync_error(self, path, error):
+        print(f"Sync Error for {path}: {error}")

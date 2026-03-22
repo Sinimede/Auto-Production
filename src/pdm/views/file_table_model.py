@@ -10,7 +10,7 @@ class FileTableModel(QAbstractTableModel):
         self.lock_controller = lock_controller
         self.files = []
         self.filter_text = ""
-        self.headers = ["Name", "Status", "Lifecycle", "User", "Date"]
+        self.headers = ["Name", "Status", "Version", "Lifecycle", "User", "Date"]
         self.current_user = getpass.getuser()
         self.refresh()
 
@@ -31,15 +31,19 @@ class FileTableModel(QAbstractTableModel):
                     full_path = os.path.normpath(os.path.abspath(os.path.join(self.folder_path, f)))
                     lock_info = None
                     status = "In Design"
+                    version = 1
                     if self.lock_controller:
                         lock_info = self.lock_controller.is_locked(full_path)
                         status = self.lock_controller.get_status(full_path)
+                        metadata = self.lock_controller.get_file_metadata(full_path)
+                        version = metadata.get("version", 1)
                     
                     self.files.append({
                         "name": f,
                         "path": full_path,
                         "lock_info": lock_info,
-                        "status": status
+                        "status": status,
+                        "version": version
                     })
         
         # Apply Filter
@@ -71,10 +75,12 @@ class FileTableModel(QAbstractTableModel):
             if col == 1: 
                 return "🔒 Locked" if file_data["lock_info"] else "✅ Available"
             if col == 2:
-                return "✅ Approved" if file_data["status"] == "Approved" else file_data["status"]
+                return f"v{file_data['version']}"
             if col == 3:
-                return file_data["lock_info"]["user_id"] if file_data["lock_info"] else ""
+                return "✅ Approved" if file_data["status"] == "Approved" else file_data["status"]
             if col == 4:
+                return file_data["lock_info"]["user_id"] if file_data["lock_info"] else ""
+            if col == 5:
                 return file_data["lock_info"]["locked_at"] if file_data["lock_info"] else ""
         
         if role == Qt.ItemDataRole.BackgroundRole:

@@ -50,6 +50,7 @@ TABLES = [
         revision TEXT DEFAULT '00',
         treatment TEXT,
         last_synced_hash TEXT,
+        version INTEGER DEFAULT 1,
         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """
