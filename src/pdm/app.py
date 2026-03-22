@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QApplication
 import sys
-from views.main_window import SWATMainWindow
+from src.pdm.views.main_window import SWATMainWindow
 
 def main():
     app = QApplication(sys.argv)

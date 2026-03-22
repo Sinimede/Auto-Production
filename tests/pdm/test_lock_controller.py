@@ -11,6 +11,8 @@ from pdm.models.database import DatabaseManager
 
 class TestLockController(unittest.TestCase):
     def setUp(self):
+        # Reset Singleton
+        DatabaseManager._instance = None
         # Usar uma base de dados em memória para testes
         self.db_path = "test_pdm.db"
         self.db = DatabaseManager(self.db_path)
@@ -40,6 +42,22 @@ class TestLockController(unittest.TestCase):
         
         # 5. Verificar se está unlocked
         self.assertIsNone(self.controller.is_locked(self.test_file))
+
+    def test_status_management(self):
+        # 1. Default status check
+        status = self.controller.get_status(self.test_file)
+        self.assertEqual(status, "In Design")
+        
+        # 2. Set status to Approved
+        self.assertTrue(self.controller.set_status(self.test_file, "Approved"))
+        
+        # 3. Verify status changed
+        status = self.controller.get_status(self.test_file)
+        self.assertEqual(status, "Approved")
+        
+        # 4. Change back
+        self.assertTrue(self.controller.set_status(self.test_file, "In Design"))
+        self.assertEqual(self.controller.get_status(self.test_file), "In Design")
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ Auto Production is an automation suite for **SolidWorks** using **Python** and t
 
 ## Features
 
+- **PDM System (SWAT-PDM):** A complete file management system with Check-In/Check-Out, File History, Production Approval, and "Where Used" reference tracking.
 - **Unified Exporter GUI:** A desktop application to manage DXF (for Laser) and STEP (for CNC/Router) exports.
 - **Standalone DXF Exporter:** A focused tool for quick DXF generation.
 - **Supplier Management:** Tools for looking up and managing supplier data.
@@ -39,6 +40,12 @@ run.bat
 
 # Or directly with Python
 python main.py
+```
+
+### Launch PDM System (SWAT-PDM)
+Manage file lifecycle, locks, and references:
+```bash
+run_pdm.bat
 ```
 
 ### Launch Legacy Unified GUI

@@ -1,6 +1,7 @@
 
 import tkinter as tk
 from tkinter import ttk
+from typing import Optional
 
 # Colors
 BG_SIDEBAR  = "#1e1e2e"
@@ -31,7 +32,7 @@ class BaseFrame(tk.Frame):
     def __init__(self, parent, service, log_fn, get_asm_path):
         super().__init__(parent, bg=BG_CONTENT)
         self.service = service
-        self._log_fn = log_fn
+        self._log_fn = log_fn # MainWindow.log
         self._get_asm_path = get_asm_path
         
         self.columnconfigure(1, weight=1)
@@ -50,8 +51,8 @@ class BaseFrame(tk.Frame):
                 on_error=self._on_error
             )
 
-    def _on_log(self, message: str):
-        self.after(0, lambda: self._log_fn(message))
+    def _on_log(self, message: str, level: str = "INFO", tag: Optional[str] = None):
+        self.after(0, lambda: self._log_fn(message, level, tag))
 
     def _on_progress(self, current: int, total: int):
         def update():

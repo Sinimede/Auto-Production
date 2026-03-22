@@ -22,16 +22,19 @@ HEADER_ROW     = 2
 DATA_START_ROW = 3
 
 
-def generate_perfis(rows: list, output_path: str) -> None:
+def generate_perfis(rows: list, output_path: str, template_path: str = None) -> None:
     """
     Write Perfis de Alumínio Excel from the template.
 
     Args:
-        rows:        List of dicts {"qty": int, "description": str, "length_mm": float}.
-                     Must be pre-sorted (caller is responsible for sort order).
-        output_path: Destination .xlsx path (overwritten if it exists).
+        rows:          List of dicts {"qty": int, "description": str, "length_mm": float}.
+                       Must be pre-sorted (caller is responsible for sort order).
+        output_path:   Destination .xlsx path (overwritten if it exists).
+        template_path: Optional path to the Excel template.
     """
-    template_path = os.path.join(get_templates_dir(), TEMPLATE_NAME)
+    if not template_path:
+        template_path = os.path.join(get_templates_dir(), TEMPLATE_NAME)
+    
     shutil.copy2(template_path, output_path)
 
     wb = openpyxl.load_workbook(output_path)

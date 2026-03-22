@@ -48,11 +48,18 @@ class StepService(BaseService):
             self._set_progress(0, total)
             progress_i = 0
 
+            self._stop_event.clear()
+
             for proc_key, parts in process_parts.items():
                 if not parts: continue
                 self._log(f"  Processo: {proc_key.upper()}")
                 
                 for part in parts:
+                    if self._stop_event.is_set():
+                        self._log("Operação cancelada pelo utilizador.")
+                        self._finish(ok_count, err_count)
+                        return
+
                     success, msg = self._export_one(part, out_dir, proc_key == "router")
                     if success: ok_count += 1
                     else: err_count += 1
@@ -87,7 +94,7 @@ class StepService(BaseService):
             if is_router:
                 # Router Flow: Copy to tmp -> Modify Dowels -> Export -> Cleanup
                 tmp_path = self.sw.copy_part_to_tmp(path, get_temp_dir())
-                tmp_doc, _ = self.sw.open_assembly(tmp_path) # Opens as part but using open_assembly helper
+                tmp_doc, _ = self.sw.open_doc(tmp_path) # Auto-detects Part or Assembly
                 
                 # Dowel modification logic
                 holes = self.sw.get_dowel_holes(tmp_doc)

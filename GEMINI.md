@@ -2,6 +2,9 @@
 
 This project is an automation suite for **SolidWorks** using **Python** and the **win32com** (COM API) library. It focuses on streamlining the production lifecycle: exporting DXF/STEP files, generating Bill of Materials (BOM), and managing supplier data.
 
+## MCP Server superpowers
+ - **Usage:** Always use superpowers tools, skills, and agents or feature available. 
+
 ## Project Overview
 
 - **Purpose:** Automate SolidWorks exports (DXF for Laser, STEP for CNC/Router) and production data management.
@@ -15,6 +18,7 @@ This project is an automation suite for **SolidWorks** using **Python** and the 
 - **Core Logic:**
     - `tools/exporter/`: Unified desktop app for DXF and STEP exports.
     - `tools/dxf_exporter/`: Original standalone DXF tool.
+    - `src/pdm/`: Modern PDM suite (PyQt6) for file lifecycle management (Check-In/Out, Where Used).
     - `tools/fornecedores/`: Supplier lookup and management.
     - `tools/post_process/`: Automated rule application for geometry/data.
 
@@ -25,6 +29,10 @@ This project is an automation suite for **SolidWorks** using **Python** and the 
 - **Launch Modernized GUI (Recommended):**
   ```bash
   run.bat
+  ```
+- **Launch PDM System (PyQt6):**
+  ```bash
+  run_pdm.bat
   ```
 - **Launch Legacy Unified GUI:**
   ```bash
@@ -71,3 +79,4 @@ Refer to `docs/project-guide.md` for exhaustive details on SW 2024 quirks.
 - `assets/`: Excel and SolidWorks templates for reports and BOMs (formerly Templates/).
 - `Resultados/`: Default output directory for exports.
 - `.tmp/`: Workspace for temporary file modifications (gitignored).
+

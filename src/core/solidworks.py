@@ -7,6 +7,8 @@ import unicodedata
 import pythoncom
 import win32com.client
 from win32com.client import gencache
+import hashlib
+import olefile
 from typing import List, Optional, Tuple, Dict, Any
 from collections import namedtuple, Counter
 
@@ -54,14 +56,48 @@ class SolidWorksClient:
         self._mod = None
 
     def connect(self):
-        """Connects to the active SolidWorks instance."""
+        """Connects to the active SolidWorks instance with aggressive retry."""
+        if self.sw and self._is_alive():
+            return True
+            
+        print("DEBUG: SW Client - connect() called", flush=True)
         try:
+            # Clean up thread state
+            try: 
+                print("DEBUG: SW Client - CoUninitialize", flush=True)
+                pythoncom.CoUninitialize()
+            except: 
+                pass
+            print("DEBUG: SW Client - CoInitialize", flush=True)
             pythoncom.CoInitialize()
-            raw = win32com.client.GetActiveObject("SldWorks.Application")
+            
+            # Try to get active object
+            try:
+                print("DEBUG: SW Client - GetActiveObject", flush=True)
+                raw = win32com.client.GetActiveObject("SldWorks.Application")
+            except Exception as e:
+                print(f"DEBUG: SW Client - GetActiveObject failed ({e}), trying Dispatch", flush=True)
+                # Fallback to Dispatch (sometimes works when GetActiveObject fails)
+                raw = win32com.client.Dispatch("SldWorks.Application")
+            
+            if not raw:
+                print("DEBUG: SW Client - raw object is None", flush=True)
+                raise RuntimeError("SolidWorks não está a correr.")
+                
+            print("DEBUG: SW Client - Wrapping object", flush=True)
             self.sw = self._wrap(raw, "ISldWorks")
-            self.sw.Visible = True
+            # Try a simple call to verify responsiveness
+            print("DEBUG: SW Client - Checking RevisionNumber", flush=True)
+            self.sw.RevisionNumber()
+            # print("DEBUG: SW Client - Setting Visible", flush=True)
+            # self.sw.Visible = True
+            print("DEBUG: SW Client - Connected successfully", flush=True)
             return True
         except Exception as e:
+            print(f"DEBUG: SW Client - Exception in connect: {e}", flush=True)
+            err_msg = str(e)
+            if "-2147221021" in err_msg:
+                raise RuntimeError("SolidWorks está ocupado ou com um diálogo aberto. Feche todas as janelas no SolidWorks e tente novamente.")
             raise RuntimeError(f"Erro ao conectar ao SolidWorks: {e}")
 
     def _is_alive(self) -> bool:
@@ -97,15 +133,42 @@ class SolidWorksClient:
             return obj
 
     def _safe_call(self, obj, attr_name: str, *args):
-        """Helper to handle SW 2024 callable-guards (methods behaving as properties)."""
+        """Helper to handle SW 2024 callable-guards and extract values from VARIANTs recursively."""
         try:
             ref = getattr(obj, attr_name)
             val = ref(*args) if callable(ref) else ref
-            if isinstance(val, tuple) and len(val) == 1:
-                return val[0]
+            
+            # Recursively unwrap VARIANTs and single-element tuples
+            for _ in range(5): # Limit recursion to avoid infinite loops
+                if hasattr(val, "value"): # win32com VARIANT
+                    val = val.value
+                elif isinstance(val, (tuple, list)) and len(val) == 1:
+                    val = val[0]
+                else:
+                    break
             return val
         except:
             return None
+
+    @ensure_sw_connection
+    def get_dependencies(self, path: str) -> List[str]:
+        """Returns a list of immediate dependencies for a SolidWorks document."""
+        path = os.path.normpath(os.path.abspath(path))
+        # GetDocumentDependencies2(path, TraverseAll, TraverseCustomProps, TraverseInternal)
+        # TraverseAll=True, TraverseCustomProps=False, TraverseInternal=False
+        deps = self.sw.GetDocumentDependencies2(path, True, False, False)
+        if not deps:
+            return []
+        
+        # Result is a tuple: (dependency_path1, configuration1, dependency_path2, configuration2, ...)
+        # We only want unique paths
+        paths = []
+        if isinstance(deps, tuple):
+            for i in range(0, len(deps), 2):
+                dep_path = os.path.normpath(deps[i])
+                if dep_path.lower() != path.lower() and dep_path not in paths:
+                    paths.append(dep_path)
+        return paths
 
     # --- Document Management ---
 
@@ -134,10 +197,34 @@ class SolidWorksClient:
         return doc, True
 
     @ensure_sw_connection
+    def open_doc(self, path: str) -> Tuple[Any, bool]:
+        """Opens a SolidWorks document (Part or Assembly) with auto-detection."""
+        path = os.path.normpath(os.path.abspath(path))
+        ext = os.path.splitext(path)[1].lower()
+        
+        doc_type = 1 # swDocPART
+        if ext == ".sldasm":
+            doc_type = 2 # swDocASSEMBLY
+        elif ext == ".slddrw":
+            doc_type = 3 # swDocDRAWING
+            
+        # Check if already open
+        existing = self.sw.GetOpenDocumentByName(path)
+        if existing:
+            return existing, False
+            
+        # OpenDoc6
+        result = self.sw.OpenDoc6(path, doc_type, 0, "", 0, 0)
+        doc = result[0] if isinstance(result, tuple) else result
+        if not doc:
+            raise RuntimeError(f"Falha ao abrir documento: {path}")
+        return doc, True
+
+    @ensure_sw_connection
     def open_assembly_resolved(self, path: str) -> Tuple[Any, bool]:
         """
         Opens the assembly in read-only resolved (non-lightweight) mode.
-        Closes any already-open instance first if it's clean.
+        Forcefully closes any already-open instance (discarding changes).
         """
         RESOLVED_READONLY = 2 | 64 # ReadOnly | OverrideLoadLightweight
         path = os.path.normpath(os.path.abspath(path))
@@ -151,10 +238,9 @@ class SolidWorksClient:
                 if active_path.lower() == path.lower():
                     existing = active
 
+        # Mandato: Sempre fechar e descartar para garantir modo resolvido limpo
         if existing:
-            if self._is_doc_dirty(existing):
-                raise RuntimeError(f"O assembly '{os.path.basename(path)}' tem alterações não guardadas. Guarde ou descarte as alterações antes de continuar.")
-            self.sw.CloseDoc(path)
+            self.close_doc(path)
 
         # Open in resolved + read-only mode
         result = self.sw.OpenDoc6(path, 2, RESOLVED_READONLY, "", 0, 0)
@@ -165,12 +251,28 @@ class SolidWorksClient:
 
     def _is_doc_dirty(self, doc) -> bool:
         """Checks if a document has unsaved changes."""
-        ref = doc.GetSaveFlag
-        val = ref() if callable(ref) else ref
-        return bool(val[0] if isinstance(val, tuple) else val)
+        try:
+            ref = doc.GetSaveFlag
+            val = ref() if callable(ref) else ref
+            return bool(val[0] if isinstance(val, tuple) else val)
+        except:
+            return False
 
     @ensure_sw_connection
     def close_doc(self, path: str):
+        """Closes a document discarding any changes."""
+        path = os.path.normpath(path)
+        doc = self.sw.GetOpenDocumentByName(path)
+        if doc:
+            try:
+                # Marcar como 'não modificado' para descartar alterações sem aviso
+                # SetSaveFlag() sem argumentos marca como limpo em algumas versões
+                # ou usamos o método ResetReadOnly (menos comum)
+                # O método mais seguro em SW 2024 via COM é SetSaveFlag
+                ref = doc.SetSaveFlag
+                if callable(ref): ref()
+            except:
+                pass
         self.sw.CloseDoc(path)
 
     # --- Traversal & Data ---
@@ -180,10 +282,10 @@ class SolidWorksClient:
         """Returns unique part components in the assembly."""
         asm = self._wrap(assembly_doc, "IAssemblyDoc")
         
-        # Resolve Lightweight (Late binding required in SW 2024 for this specific method)
+        # Resolve Lightweight (Dynamic late binding required in SW 2024)
         try:
             asm_raw = self._get_raw_obj(asm)
-            win32com.client.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
+            win32com.client.dynamic.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
         except:
             pass
 
@@ -216,7 +318,7 @@ class SolidWorksClient:
             if not model:
                 try:
                     comp_raw = self._get_raw_obj(comp)
-                    win32com.client.Dispatch(comp_raw).SetComponentState(4) # Resolve
+                    win32com.client.dynamic.Dispatch(comp_raw).SetComponentState(4) # Resolve
                     model = self._safe_call(comp, "GetModelDoc2")
                 except:
                     pass
@@ -252,6 +354,81 @@ class SolidWorksClient:
 
     # --- Property Management ---
 
+    def get_file_hash(self, file_path: str) -> str:
+        """Returns the MD5 hash of a file to check for changes."""
+        hasher = hashlib.md5()
+        try:
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hasher.update(chunk)
+            return hasher.hexdigest()
+        except:
+            return ""
+
+    def get_custom_properties_fast(self, file_path: str) -> Dict[str, str]:
+        """
+        Extracts custom properties using olefile WITHOUT opening SolidWorks.
+        Extremely fast, but cannot resolve dynamic SW expressions.
+        """
+        if not olefile.isOleFile(file_path):
+            return {}
+
+        props = {}
+        try:
+            with olefile.OleFileIO(file_path) as ole:
+                # 1. SummaryInformation (Standard props like Title, Author)
+                if ole.exists('\005SummaryInformation'):
+                    si = ole.getproperties('\005SummaryInformation')
+                    # si[2] is Title (often used for Description)
+                    if 2 in si: props['Description'] = str(si[2])
+
+                # 2. DocumentSummaryInformation (Custom properties)
+                # This stream contains the actual custom property names and values
+                if ole.exists('\005DocumentSummaryInformation'):
+                    dsi = ole.getproperties('\005DocumentSummaryInformation')
+                    # Standard custom properties are usually in a dictionary-like structure here.
+                    # olefile maps them to indices. We iterate and look for our keys.
+                    for codepage, p_dict in dsi.items():
+                        for p_id, p_val in p_dict.items():
+                            p_name = str(p_id)
+                            # Custom property names are stored in a special section (PID_DICTIONARY = 0)
+                            # But olefile often resolves them automatically if it can.
+                            # Since SW properties vary, we do a best-effort mapping.
+                            if isinstance(p_val, bytes):
+                                try: p_val = p_val.decode('utf-16').strip('\x00')
+                                except: pass
+                            
+                            p_val_str = str(p_val).strip()
+                            if p_val_str:
+                                # Map common SW property IDs or names if available
+                                # (In practice, full SW property mapping in OLE is complex, 
+                                # but olefile is good for quick raw extraction)
+                                props[p_name] = p_val_str
+
+                # 3. Handle specific SolidWorks custom properties stream if it exists
+                # SolidWorks stores custom props in 'Custom Properties' or 'Configuration Specific' streams.
+                # These are often binary-encoded.
+                
+            # Filter and normalize
+            result = {}
+            mapping = {
+                "Description": ["Description", "Descrição", "Title"],
+                "Material": ["Material"],
+                "Weight": ["Weight", "Peso"],
+                "Revision": ["Revision", "Revisão"],
+                "Treatment": ["Treatment", "Tratamento"]
+            }
+            
+            for key, aliases in mapping.items():
+                for alias in aliases:
+                    if alias in props:
+                        result[key] = props[alias]
+                        break
+            
+            return result
+        except:
+            return {}
+
     def get_custom_property(self, model_doc, prop_name: str) -> str:
         """
         Gets evaluated custom property, handling SW 2024 quirks.
@@ -261,26 +438,29 @@ class SolidWorksClient:
             return ""
             
         try:
-            # 1. Get Extension object safely
+            # 1. Legacy Fallback for Custom tab (very reliable)
+            val = self._safe_call(model_doc, "GetCustomInfoValue", "", prop_name)
+            if val: return str(val).strip('"\' ')
+
+            # 2. Get Extension object safely
             ext = self._safe_call(model_doc, "Extension")
             if not ext: return ""
             
-            # 2. Try Config-specific properties first (most common for BOM)
+            # 3. Try Config-specific properties first
             config_mgr = self._safe_call(model_doc, "ConfigurationManager")
             active_cfg = self._safe_call(config_mgr, "ActiveConfiguration")
             cfg_name = self._safe_call(active_cfg, "Name") if active_cfg else ""
             
-            # Try Config Manager
             val = self._read_from_mgr(ext, cfg_name, prop_name)
             
-            # 3. Fallback to Document-level properties ("")
+            # 4. Fallback to Document-level properties ("")
             if not val:
                 val = self._read_from_mgr(ext, "", prop_name)
             
-            # 4. Clean up results
+            # 5. Clean up results
             val = val.strip('"\' ')
             
-            # 5. Handle special case: Material expression
+            # 6. Handle special case: Material expression
             if prop_name == "Material" and (not val or _SW_EXPR_RE.match(val)):
                 val = self._get_part_material(model_doc)
                 
@@ -288,22 +468,94 @@ class SolidWorksClient:
         except Exception:
             return ""
 
+    def set_custom_property(self, model_doc, prop_name: str, value: str):
+        """Sets a custom property at the document level."""
+        if not model_doc: return
+        try:
+            # 1. Try via Extension.CustomPropertyManager (Modern)
+            ext = self._safe_call(model_doc, "Extension")
+            if ext:
+                mgr = self._safe_call(ext, "CustomPropertyManager", "")
+                if mgr:
+                    # 30 = swCustomInfoText, 1 = Replace existing
+                    try:
+                        res = mgr.Add3(prop_name, 30, value, 1)
+                        if res in (1, 2): # 1=Success, 2=Already exists (but Replace=1 should handle it)
+                            return
+                    except:
+                        try:
+                            mgr.Set2(prop_name, value)
+                            return
+                        except:
+                            pass
+
+            # 2. Fallback to Legacy Document-level property (AddCustomInfo3)
+            # swCustomInfoText = 30
+            try:
+                model_doc.AddCustomInfo3("", prop_name, 30, value)
+            except:
+                pass
+        except Exception as e:
+            print(f"DEBUG: set_custom_property error: {e}")
+            raise RuntimeError(f"Erro ao definir propriedade '{prop_name}': {e}")
+
+    def get_custom_properties(self, file_path: str) -> Dict[str, str]:
+        """Opens a file (if not open) and extracts a dictionary of common PDM properties."""
+        path = os.path.normpath(os.path.abspath(file_path))
+        ext = os.path.splitext(path)[1].lower()
+        
+        type_map = {".sldprt": 1, ".sldasm": 2, ".slddrw": 3}
+        doc_type = type_map.get(ext, 1)
+        
+        # 1. Check if already open
+        model_doc = self.sw.GetOpenDocumentByName(path)
+        was_open = model_doc is not None
+        
+        if not model_doc:
+            # 2. Open it (Silent, Read-only)
+            # OpenDoc6 params: file, type, options (1=ReadOnly, 2=Silent), config, errors, warnings
+            # Pass 0 for errors/warnings to avoid VARIANT vs early-binding error
+            result = self.sw.OpenDoc6(path, doc_type, 3, "", 0, 0)
+            model_doc = result[0] if isinstance(result, tuple) else result
+            
+        if not model_doc:
+            return {}
+            
+        try:
+            props = {
+                "Description": self.get_custom_property(model_doc, "Description") or self.get_custom_property(model_doc, "Descrição"),
+                "Material": self.get_custom_property(model_doc, "Material"),
+                "Weight": self.get_custom_property(model_doc, "Weight") or self.get_custom_property(model_doc, "Peso"),
+                "Revision": self.get_custom_property(model_doc, "Revision") or self.get_custom_property(model_doc, "Revisão"),
+                "Treatment": self.get_custom_property(model_doc, "Treatment") or self.get_custom_property(model_doc, "Tratamento")
+            }
+            return {k: v for k, v in props.items() if v}
+        finally:
+            if not was_open:
+                self.sw.CloseDoc(path)
+
     def _read_from_mgr(self, extension, config_name: str, prop_name: str) -> str:
         """Helper to read property from a specific CustomPropertyManager."""
         try:
             mgr = self._safe_call(extension, "CustomPropertyManager", config_name)
             if not mgr: return ""
             
+            # Try to find the property name with correct casing
+            names = mgr.GetNames()
+            if names:
+                if isinstance(names, tuple): names = list(names)
+                actual_name = next((n for n in names if str(n).lower() == prop_name.lower()), prop_name)
+            else:
+                actual_name = prop_name
+            
             # Try Get4 (Resolved value)
-            # Get4 returns (retval, value, resolvedValue, wasResolved)
-            res = mgr.Get4(prop_name, True)
+            res = mgr.Get4(actual_name, True)
             if isinstance(res, tuple) and len(res) > 2:
                 resolved = str(res[2]).strip()
                 raw = str(res[1]).strip()
                 return resolved if resolved else raw
             
-            # Fallback to simple Get
-            return str(mgr.Get(prop_name) or "").strip()
+            return str(mgr.Get(actual_name) or "").strip()
         except:
             return ""
 
@@ -319,18 +571,37 @@ class SolidWorksClient:
     # --- Export ---
 
     @ensure_sw_connection
-    def export_to_step(self, doc, output_path: str):
-        """Exports document to STEP AP214 using late-binding SaveAs4."""
+    def export_to_step(self, doc_or_comp, output_path: str):
+        """Exports document or component to STEP AP214 using late-binding SaveAs4."""
         import pythoncom as _pycom
-        raw = getattr(doc, "_dispobj_", None) or getattr(doc, "_oleobj_", None) or doc
-        late = win32com.client.Dispatch(raw)
-        byref_i4 = lambda: win32com.client.VARIANT(_pycom.VT_BYREF | _pycom.VT_I4, 0)
-        
-        # SaveAs4 args: Name, Version, Options, Errors, Warnings
-        res_raw = late.SaveAs4(output_path, 0, 1, byref_i4(), byref_i4())
-        res = res_raw[0] if isinstance(res_raw, tuple) else res_raw
-        if not res:
-            raise RuntimeError(f"Falha ao exportar STEP: {output_path}")
+        try:
+            # 1. Ensure we have the ModelDoc2
+            doc = doc_or_comp
+            if hasattr(doc, "GetModelDoc2") or "IComponent2" in str(type(doc)):
+                doc = self._safe_call(doc, "GetModelDoc2")
+            
+            if not doc:
+                raise RuntimeError("Não foi possível obter o modelo do componente.")
+
+            # 2. Use Late Binding (Dynamic) for the save operation
+            raw = self._get_raw_obj(doc)
+            late = win32com.client.dynamic.Dispatch(raw)
+            
+            # 3. Prepare by-ref parameters
+            err = win32com.client.VARIANT(_pycom.VT_BYREF | _pycom.VT_I4, 0)
+            warn = win32com.client.VARIANT(_pycom.VT_BYREF | _pycom.VT_I4, 0)
+            
+            # SaveAs4 args: Name, Version (0=Current), Options (1=Silent), Errors, Warnings
+            res = late.SaveAs4(output_path, 0, 1, err, warn)
+            
+            # Handle possible tuple return (bool, errors, warnings)
+            success = res[0] if isinstance(res, (tuple, list)) else bool(res)
+            
+            if not success:
+                raise RuntimeError(f"Erro SW: {err.value}")
+                
+        except Exception as e:
+            raise RuntimeError(f"Erro na exportação STEP: {e}")
 
     @ensure_sw_connection
     def export_to_dxf(self, component, output_path: str):
@@ -349,10 +620,10 @@ class SolidWorksClient:
         bom_flat = []
         warnings = []
         
-        # Resolve Lightweight (Late binding)
+        # Resolve Lightweight (Dynamic late binding)
         try:
             asm_raw = self._get_raw_obj(assembly_doc)
-            win32com.client.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
+            win32com.client.dynamic.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
         except Exception as e:
             warnings.append(f"Aviso: Falha ao resolver componentes: {e}")
 
@@ -479,7 +750,7 @@ class SolidWorksClient:
     def save_silent(self, doc):
         """Saves document silently using late binding."""
         raw = self._get_raw_obj(doc)
-        late = win32com.client.Dispatch(raw)
+        late = win32com.client.dynamic.Dispatch(raw)
         byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
         late.Save3(1, byref_i4(), byref_i4()) # 1 = Silent
 
@@ -729,7 +1000,8 @@ class SolidWorksClient:
             return None
 
     def _get_raw_obj(self, obj):
-        return getattr(obj, "_dispobj_", None) or getattr(obj, "_oleobj_", None) or obj
+        """Returns the raw COM interface (_oleobj_) for late-binding operations."""
+        return getattr(obj, "_oleobj_", None) or getattr(obj, "_dispobj_", None) or obj
 
     # --- Geometry Helpers ---
 

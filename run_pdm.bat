@@ -1,7 +1,8 @@
 @echo off
-set "PYTHONPATH=%~dp0\src"
+set "PYTHONPATH=%~dp0"
 if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" "src\pdm\app.py"
+    ".venv\Scripts\python.exe" -m src.pdm.app
 ) else (
-    python "src\pdm\app.py"
+    python -m src.pdm.app
 )
+if %ERRORLEVEL% neq 0 pause

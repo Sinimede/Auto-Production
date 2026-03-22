@@ -4,11 +4,13 @@ Unified export tool for SolidWorks assemblies.
 Sidebar navigation, shared assembly path, shared log.
 
 Usage:
-    python main.py
+    python main.py [--path "C:/path/to/assembly.sldasm"]
 """
 
 import os
 import sys
+import datetime
+import argparse
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 
@@ -19,6 +21,28 @@ from modules.all_module import AllModule
 from modules.dxf_module import DxfModule
 from modules.step_module import StepModule
 from modules.listas_module import ListasModule
+
+# ---------------------------------------------------------------------------
+# Structured Logging
+# ---------------------------------------------------------------------------
+
+class LogEntry:
+    """Represents a single log entry with structured data."""
+    def __init__(self, message: str, level: str = "INFO", tag: str = None):
+        self.timestamp = datetime.datetime.now()
+        self.message = message
+        self.level = level
+        self.tag = tag
+
+    def __str__(self) -> str:
+        """String representation for display in the log widget."""
+        ts = self.timestamp.strftime("%H:%M:%S")
+        prefix = f"[{ts}] "
+        if self.level != "INFO":
+            prefix += f"{self.level}: "
+        if self.tag:
+            prefix += f"[{self.tag}] "
+        return f"{prefix}{self.message}"
 
 # ---------------------------------------------------------------------------
 # Colour palette
@@ -60,15 +84,23 @@ MODULES = [
 # ---------------------------------------------------------------------------
 
 class MainWindow(tk.Tk):
-    def __init__(self):
+    def __init__(self, initial_path=None):
         super().__init__()
         self.title("Auto Production")
         self.configure(bg=BG_MAIN)
         self.minsize(820, 560)
         self.resizable(True, True)
 
+        self._log_entries = []
+        self._initial_path = initial_path
+
         self._apply_ttk_theme()
         self._build_ui()
+        
+        if self._initial_path:
+            self.asm_var.set(self._initial_path)
+            self._log(f"Opened assembly via CLI: {self._initial_path}")
+            
         self._switch_module("all")  # Show Gerar Tudo by default
 
     # ------------------------------------------------------------------
@@ -257,13 +289,27 @@ class MainWindow(tk.Tk):
     # Shared log
     # ------------------------------------------------------------------
 
-    def _log(self, msg: str):
+    def _log(self, msg: str, level: str = "INFO", tag: str = None):
+        entry = LogEntry(msg, level, tag)
+        self._log_entries.append(entry)
+
         self.log_widget.configure(state="normal")
-        self.log_widget.insert("end", msg + "\n")
+        self.log_widget.insert("end", str(entry) + "\n")
+        self.log_widget.see("end")
+        self.log_widget.configure(state="disabled")
+
+    def _refresh_log(self, tag: str = None):
+        """Repopulates the log widget from stored entries, filtering by tag if provided."""
+        self.log_widget.configure(state="normal")
+        self.log_widget.delete("1.0", "end")
+        for entry in self._log_entries:
+            if tag is None or entry.tag == tag:
+                self.log_widget.insert("end", str(entry) + "\n")
         self.log_widget.see("end")
         self.log_widget.configure(state="disabled")
 
     def _clear_log(self):
+        self._log_entries = []
         self.log_widget.configure(state="normal")
         self.log_widget.delete("1.0", "end")
         self.log_widget.configure(state="disabled")
@@ -274,5 +320,9 @@ class MainWindow(tk.Tk):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app = MainWindow()
+    parser = argparse.ArgumentParser(description="Auto Production Unified Exporter")
+    parser.add_argument("--path", help="Path to the SolidWorks assembly file")
+    args = parser.parse_args()
+    
+    app = MainWindow(initial_path=args.path)
     app.mainloop()

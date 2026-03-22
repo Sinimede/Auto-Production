@@ -13,6 +13,8 @@ class BomService(BaseService):
         self.run_async(self._worker, asm_path, out_dir, include_bom, include_perfis)
 
     def _worker(self, asm_path, out_dir, include_bom, include_perfis):
+        ok_count = 0
+        err_count = 0
         asm_doc = None
         was_opened_by_us = False
 
@@ -25,14 +27,19 @@ class BomService(BaseService):
             self._log(f"A abrir assembly: {os.path.basename(asm_path)}")
             asm_doc, was_opened_by_us = self.sw.open_assembly_resolved(asm_path)
 
+            self._stop_event.clear()
+
             if include_bom:
-                self._generate_bom_flow(asm_doc, out_dir)
+                self._generate_bom_flow(asm_doc, out_dir, ok_count, err_count)
+                if self._stop_event.is_set(): return
             
             if include_perfis:
-                self._generate_perfis_flow(asm_doc, out_dir)
+                self._generate_perfis_flow(asm_doc, out_dir, ok_count, err_count)
+                if self._stop_event.is_set(): return
 
+            ok_count = 1
             self._set_status("Concluído.")
-            self._finish(1, 0)
+            self._finish(ok_count, err_count)
 
         except Exception as e:
             self._handle_error(e)
@@ -40,7 +47,7 @@ class BomService(BaseService):
             if was_opened_by_us and asm_doc:
                 self.sw.close_doc(asm_path)
 
-    def _generate_bom_flow(self, asm_doc, out_dir):
+    def _generate_bom_flow(self, asm_doc, out_dir, ok_count, err_count):
         self._log("A gerar Lista de Materiais...")
         bom_flat, warnings = self.sw.get_bom_components(asm_doc)
         for w in warnings:
@@ -58,6 +65,11 @@ class BomService(BaseService):
         warn_count = len(warnings)
 
         for comp in unique:
+            if self._stop_event.is_set():
+                self._log("Operação cancelada pelo utilizador.")
+                self._finish(ok_count, err_count)
+                return
+
             path = self.sw._safe_call(comp, "GetPathName")
             norm_path = os.path.normpath(path).lower()
             bc = path_to_bc.get(norm_path)
@@ -107,7 +119,7 @@ class BomService(BaseService):
         self._log(f"  OK    Lista de materiais.xlsx")
         self._log(f"  Resumo: P:{len(rows_producao)} M:{len(rows_mecanico)} E:{len(rows_eletrico)} Pn:{len(rows_pneumatico)} Avisos:{warn_count}")
 
-    def _generate_perfis_flow(self, asm_doc, out_dir):
+    def _generate_perfis_flow(self, asm_doc, out_dir, ok_count, err_count):
         self._log("A gerar Lista de Perfis...")
         perfis_parts = self.sw.get_perfis_parts(asm_doc)
         self._log(f"  Peças Perfil Alumínio encontradas: {len(perfis_parts)}")
@@ -117,6 +129,11 @@ class BomService(BaseService):
 
         all_cut_list_items = []
         for part_path, assembly_qty in perfis_parts:
+            if self._stop_event.is_set():
+                self._log("Operação cancelada pelo utilizador.")
+                self._finish(ok_count, err_count)
+                return
+
             items, warnings = self.sw.get_weldment_cut_list(part_path)
             for w in warnings:
                 self._log(f"  AVISO [{os.path.basename(part_path)}]: {w}")

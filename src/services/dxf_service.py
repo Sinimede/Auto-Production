@@ -56,10 +56,17 @@ class DxfService(BaseService):
             self._set_progress(0, total)
             progress_i = 0
 
+            self._stop_event.clear()
+
             # Process Laser
             if laser_parts:
                 self._log("  Processo: Laser")
                 for part in laser_parts:
+                    if self._stop_event.is_set():
+                        self._log("Operação cancelada pelo utilizador.")
+                        self._finish(ok_count, err_count)
+                        return
+
                     success, msg = self._export_one(part, out_dir)
                     if success: ok_count += 1
                     else: err_count += 1
@@ -71,6 +78,11 @@ class DxfService(BaseService):
             if protecoes_parts:
                 self._log("  Processo: Proteções")
                 for part in protecoes_parts:
+                    if self._stop_event.is_set():
+                        self._log("Operação cancelada pelo utilizador.")
+                        self._finish(ok_count, err_count)
+                        return
+
                     success, msg = self._export_one(part, out_dir)
                     if success: ok_count += 1
                     else: err_count += 1

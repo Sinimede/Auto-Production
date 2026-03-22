@@ -7,6 +7,11 @@ class ProjectController:
         self.db = get_db()
         self.root_path = root_path or os.getcwd()
 
+    def set_root_path(self, new_path):
+        if os.path.exists(new_path):
+            self.root_path = new_path
+            print(f"DEBUG: ProjectController root_path updated to: {self.root_path}")
+
     def create_project(self, client, name, order_num):
         project_folder_name = f"{client}_{name}_{order_num}"
         project_path = os.path.join(self.root_path, project_folder_name)

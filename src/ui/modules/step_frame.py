@@ -5,8 +5,9 @@ from tkinter import filedialog, ttk, messagebox
 from .base_frame import BaseFrame, BG_CONTENT, TEXT_WHITE, TEXT, TEXT_DIM, BORDER, ACCENT, FONT_LABEL, FONT_UI, FONT_BTN
 
 class StepFrame(BaseFrame):
-    def __init__(self, parent, service, log_fn, get_asm_path):
+    def __init__(self, parent, service, log_fn, get_asm_path, get_out_path):
         super().__init__(parent, service, log_fn, get_asm_path)
+        self.get_out_path = get_out_path
         self._build_ui()
 
     def _build_ui(self):
@@ -25,11 +26,14 @@ class StepFrame(BaseFrame):
 
         # Output folder
         tk.Label(
-            self, text="Output folder:",
+            self, text="Pasta de Saída:",
             bg=BG_CONTENT, fg=TEXT_DIM, font=FONT_LABEL, anchor="e",
         ).grid(row=2, column=0, sticky="e", **pad)
 
         self.out_var = tk.StringVar()
+        if self.get_out_path():
+            self.out_var.set(self.get_out_path())
+
         tk.Entry(
             self, textvariable=self.out_var,
             bg="#1e1e2e", fg=TEXT, insertbackground=TEXT,
