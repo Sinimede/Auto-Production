@@ -25,7 +25,7 @@ class TestDxfService(unittest.TestCase):
         self.service._set_status("test status")
         self.service._finish(1, 0)
         
-        on_log.assert_called_with("test log")
+        on_log.assert_called_with("test log", "INFO", None)
         on_status.assert_called_with("test status")
         on_finish.assert_called_with(1, 0)
 

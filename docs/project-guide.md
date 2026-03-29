@@ -52,20 +52,29 @@ python tools/exporter/test_step.py
 
 ### Early vs Late Binding
 
-Use **early binding** (imported interfaces) for all read/query calls:
-`GetComponents`, `GetPathName`, `GetCustomInfoValue`, `GetType`, etc.
+**IMPORTANT:** SolidWorks 2024 is extremely sensitive to COM marshaling. For operations involving `BYREF` parameters (like `SaveAs4`, `Save3`, or `ResolveAllLightweightComponents`), standard early binding OR standard `win32com.client.Dispatch` often fails with `int() argument must be a string... not 'VARIANT'` or `DISP_E_TYPEMISMATCH`.
 
-Use **late binding** for `SaveAs4`:
+**The Stable Pattern for SW 2024 Late Binding:**
+1. Prioritize `_oleobj_` (the raw COM interface) over `_dispobj_`.
+2. Use `win32com.client.dynamic.Dispatch` to force a dynamic dispatcher that handles `VARIANT` pointers correctly even if stubs exist.
+
 ```python
 import pythoncom
-late = win32com.client.Dispatch(doc._oleobj_)
-byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-raw  = late.SaveAs4(output_path, 0, 1, byref_i4(), byref_i4())
-result = raw[0] if isinstance(raw, tuple) else raw
-```
-Early binding on `SaveAs4` causes `DISP_E_TYPEMISMATCH` regardless of parameter types.
+import win32com.client
 
-**`SaveAs4` signature in SW 2024 type library:** `(Name, Version, Options, Errors, Warnings)` — **no `ExportData` parameter**. Passing 6 args with `ExportData` shifts all remaining params → TYPEMISMATCH. `Errors` and `Warnings` must be `VT_BYREF | VT_I4`. `IStepExportOptions` / `GetExportFileData` are not available in SW 2024 stubs — ignore them.
+def _get_raw_obj(obj):
+    return getattr(obj, "_oleobj_", None) or getattr(obj, "_dispobj_", None) or obj
+
+# Example: SaveAs4 (Step Export)
+raw = _get_raw_obj(doc)
+late = win32com.client.dynamic.Dispatch(raw)
+byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+err = byref_i4()
+warn = byref_i4()
+
+res = late.SaveAs4(output_path, 0, 1, err, warn)
+success = res[0] if isinstance(res, (tuple, list)) else bool(res)
+```
 
 ### OpenDoc6 Quirk
 

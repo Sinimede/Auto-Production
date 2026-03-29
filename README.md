@@ -4,6 +4,7 @@ Auto Production is an automation suite for **SolidWorks** using **Python** and t
 
 ## Features
 
+- **PDM System (SWAT-PDM):** A complete file management system with Check-In/Check-Out, File History, Production Approval, and "Where Used" reference tracking.
 - **Unified Exporter GUI:** A desktop application to manage DXF (for Laser) and STEP (for CNC/Router) exports.
 - **Standalone DXF Exporter:** A focused tool for quick DXF generation.
 - **Supplier Management:** Tools for looking up and managing supplier data.
@@ -31,14 +32,30 @@ Auto Production is an automation suite for **SolidWorks** using **Python** and t
 
 ## Usage
 
-### Launch Unified GUI
-To start the main application for DXF and STEP exports:
+### Launch Modernized GUI (Recommended)
+The new layered architecture is the current standard. Launch it via the root script:
+```bash
+# Via batch file (Windows)
+run.bat
+
+# Or directly with Python
+python main.py
+```
+
+### Launch PDM System (SWAT-PDM)
+Manage file lifecycle, locks, and references:
+```bash
+run_pdm.bat
+```
+
+### Launch Legacy Unified GUI
+The original application is still available in `tools/`:
 ```bash
 python tools/exporter/main.py
 ```
 
 ### Run Standalone DXF Exporter
-For the dedicated DXF export tool:
+For the dedicated legacy DXF export tool:
 ```bash
 python tools/dxf_exporter/main.py
 ```
@@ -57,7 +74,7 @@ run_post_process.bat
   - `fornecedores/`: Supplier management tools.
   - `post_process/`: Post-processing scripts.
 - `docs/`: Technical guides, design specs, and implementation plans.
-- `Templates/`: Excel and SolidWorks templates for reports and BOMs.
+- `assets/`: Excel and SolidWorks templates for reports and BOMs (formerly Templates/).
 - `Resultados/`: Default output directory for exports.
 
 ## Documentation

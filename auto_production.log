@@ -1,0 +1,119 @@
+2026-03-20 21:30:34,965 [INFO] [AutoProduction] ════════════════════════════════════════════════════════════════════
+2026-03-20 21:30:34,965 [INFO] [AutoProduction] Serviço de Exportação STEP
+2026-03-20 21:30:35,028 [INFO] [AutoProduction] A abrir assembly: 18026.100.900.SLDASM
+2026-03-20 21:30:41,924 [INFO] [AutoProduction] A percorrer componentes...
+2026-03-20 21:30:44,489 [INFO] [AutoProduction]   Peças a exportar: 8
+2026-03-20 21:30:44,489 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 21:30:44,489 [INFO] [AutoProduction]   Processo: ROUTER
+2026-03-20 21:30:48,055 [INFO] [AutoProduction]   OK    18026.200.001.step  [1 furos modificados]
+2026-03-20 21:30:52,675 [INFO] [AutoProduction]   OK    18026.100.004.step  [2 furos modificados]
+2026-03-20 21:30:57,355 [INFO] [AutoProduction]   OK    18026.100.006.step  [2 furos modificados]
+2026-03-20 21:30:57,355 [INFO] [AutoProduction]   Processo: CNC
+2026-03-20 21:30:57,487 [INFO] [AutoProduction]   OK    18026.100.005.step
+2026-03-20 21:30:57,612 [INFO] [AutoProduction]   OK    18026.200.001.step
+2026-03-20 21:30:57,747 [INFO] [AutoProduction]   OK    18026.100.004.step
+2026-03-20 21:30:57,884 [INFO] [AutoProduction]   OK    18026.100.006.step
+2026-03-20 21:30:57,884 [INFO] [AutoProduction]   Processo: TORNO
+2026-03-20 21:30:58,029 [INFO] [AutoProduction]   OK    18026.100.010.step
+2026-03-20 21:30:58,029 [INFO] [AutoProduction] A gerar ROUTER.xlsx...
+2026-03-20 21:30:59,268 [INFO] [AutoProduction]   OK    Router.xlsx
+2026-03-20 21:30:59,268 [INFO] [AutoProduction] A gerar CNC.xlsx...
+2026-03-20 21:31:00,903 [INFO] [AutoProduction]   OK    CNC.xlsx
+2026-03-20 21:31:00,904 [INFO] [AutoProduction] A gerar TORNO.xlsx...
+2026-03-20 21:31:01,309 [INFO] [AutoProduction]   OK    Torno.xlsx
+2026-03-20 21:31:01,309 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 21:31:01,309 [INFO] [AutoProduction] Resultado: 8 exportado(s)  |  0 erro(s)
+2026-03-20 22:24:48,510 [INFO] [AutoProduction] ════════════════════════════════════════════════════════════════════
+2026-03-20 22:24:48,513 [INFO] [AutoProduction] Serviço de Exportação STEP
+2026-03-20 22:24:48,588 [INFO] [AutoProduction] A abrir assembly: 18026.100.900.SLDASM
+2026-03-20 22:24:54,051 [INFO] [AutoProduction] A percorrer componentes...
+2026-03-20 22:24:56,598 [INFO] [AutoProduction]   Peças a exportar: 8
+2026-03-20 22:24:56,598 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:24:56,603 [INFO] [AutoProduction]   Processo: ROUTER
+2026-03-20 22:25:01,030 [INFO] [AutoProduction]   OK    18026.100.004.step  [2 furos modificados]
+2026-03-20 22:25:03,524 [WARNING] [AutoProduction] Cancelamento solicitado...
+2026-03-20 22:25:05,500 [INFO] [AutoProduction]   OK    18026.100.006.step  [2 furos modificados]
+2026-03-20 22:25:05,502 [INFO] [AutoProduction] Operação cancelada pelo utilizador.
+2026-03-20 22:25:05,504 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:25:05,505 [INFO] [AutoProduction] Resultado: 2 exportado(s)  |  0 erro(s)
+2026-03-20 22:25:52,020 [INFO] [AutoProduction] ════════════════════════════════════════════════════════════════════
+2026-03-20 22:25:52,021 [INFO] [AutoProduction] Serviço de Exportação STEP
+2026-03-20 22:25:52,027 [INFO] [AutoProduction] A abrir assembly: 18026.100.900.SLDASM
+2026-03-20 22:25:56,407 [INFO] [AutoProduction] A percorrer componentes...
+2026-03-20 22:25:58,984 [INFO] [AutoProduction]   Peças a exportar: 8
+2026-03-20 22:25:58,984 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:25:58,985 [INFO] [AutoProduction]   Processo: ROUTER
+2026-03-20 22:26:03,184 [INFO] [AutoProduction]   OK    18026.100.006.step  [2 furos modificados]
+2026-03-20 22:26:07,492 [INFO] [AutoProduction]   OK    18026.100.004.step  [2 furos modificados]
+2026-03-20 22:26:12,183 [INFO] [AutoProduction]   OK    18026.200.001.step  [1 furos modificados]
+2026-03-20 22:26:12,185 [INFO] [AutoProduction]   Processo: CNC
+2026-03-20 22:26:12,346 [INFO] [AutoProduction]   OK    18026.100.005.step
+2026-03-20 22:26:12,515 [INFO] [AutoProduction]   OK    18026.100.006.step
+2026-03-20 22:26:12,677 [INFO] [AutoProduction]   OK    18026.100.004.step
+2026-03-20 22:26:12,852 [INFO] [AutoProduction]   OK    18026.200.001.step
+2026-03-20 22:26:12,854 [INFO] [AutoProduction]   Processo: TORNO
+2026-03-20 22:26:13,003 [INFO] [AutoProduction]   OK    18026.100.010.step
+2026-03-20 22:26:13,005 [INFO] [AutoProduction] A gerar ROUTER.xlsx...
+2026-03-20 22:26:14,476 [INFO] [AutoProduction]   OK    Router.xlsx
+2026-03-20 22:26:14,478 [INFO] [AutoProduction] A gerar CNC.xlsx...
+2026-03-20 22:26:16,121 [INFO] [AutoProduction]   OK    CNC.xlsx
+2026-03-20 22:26:16,122 [INFO] [AutoProduction] A gerar TORNO.xlsx...
+2026-03-20 22:26:16,498 [INFO] [AutoProduction]   OK    Torno.xlsx
+2026-03-20 22:26:16,499 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:26:16,500 [INFO] [AutoProduction] Resultado: 8 exportado(s)  |  0 erro(s)
+2026-03-20 22:26:57,730 [INFO] [AutoProduction] ════════════════════════════════════════════════════════════════════
+2026-03-20 22:26:57,730 [INFO] [AutoProduction] Serviço de Exportação STEP
+2026-03-20 22:26:57,736 [INFO] [AutoProduction] A abrir assembly: 18026.100.900.SLDASM
+2026-03-20 22:27:01,832 [INFO] [AutoProduction] A percorrer componentes...
+2026-03-20 22:27:03,357 [INFO] [AutoProduction]   Peças a exportar: 3
+2026-03-20 22:27:03,357 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:27:03,358 [INFO] [AutoProduction]   Processo: ROUTER
+2026-03-20 22:27:07,982 [INFO] [AutoProduction]   OK    18026.100.004.step  [2 furos modificados]
+2026-03-20 22:27:12,724 [INFO] [AutoProduction]   OK    18026.100.006.step  [2 furos modificados]
+2026-03-20 22:27:16,568 [INFO] [AutoProduction]   OK    18026.200.001.step  [1 furos modificados]
+2026-03-20 22:27:16,568 [INFO] [AutoProduction] A gerar ROUTER.xlsx...
+2026-03-20 22:27:17,765 [INFO] [AutoProduction]   OK    Router.xlsx
+2026-03-20 22:27:17,765 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:27:17,765 [INFO] [AutoProduction] Resultado: 3 exportado(s)  |  0 erro(s)
+2026-03-20 22:34:33,852 [INFO] [AutoProduction] ════════════════════════════════════════════════════════════════════
+2026-03-20 22:34:33,854 [INFO] [AutoProduction] Serviço de Exportação STEP
+2026-03-20 22:34:33,900 [INFO] [AutoProduction] A abrir assembly: 18026.100.900.SLDASM
+2026-03-20 22:34:38,032 [INFO] [AutoProduction] A percorrer componentes...
+2026-03-20 22:34:40,701 [INFO] [AutoProduction]   Peças a exportar: 8
+2026-03-20 22:34:40,702 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:34:40,710 [INFO] [AutoProduction]   Processo: ROUTER
+2026-03-20 22:34:44,738 [INFO] [AutoProduction]   OK    18026.100.004.step  [2 furos modificados]
+2026-03-20 22:34:48,834 [INFO] [AutoProduction]   OK    18026.100.006.step  [2 furos modificados]
+2026-03-20 22:34:52,258 [WARNING] [AutoProduction] Cancelamento solicitado...
+2026-03-20 22:34:52,984 [INFO] [AutoProduction]   OK    18026.200.001.step  [1 furos modificados]
+2026-03-20 22:34:52,984 [INFO] [AutoProduction]   Processo: CNC
+2026-03-20 22:34:52,984 [INFO] [AutoProduction] Operação cancelada pelo utilizador.
+2026-03-20 22:34:52,984 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:34:52,984 [INFO] [AutoProduction] Resultado: 3 exportado(s)  |  0 erro(s)
+2026-03-20 22:35:58,021 [INFO] [AutoProduction] ════════════════════════════════════════════════════════════════════
+2026-03-20 22:35:58,022 [INFO] [AutoProduction] Serviço de Exportação STEP
+2026-03-20 22:35:58,029 [INFO] [AutoProduction] A abrir assembly: 18026.100.900.SLDASM
+2026-03-20 22:36:02,003 [INFO] [AutoProduction] A percorrer componentes...
+2026-03-20 22:36:04,635 [INFO] [AutoProduction]   Peças a exportar: 8
+2026-03-20 22:36:04,636 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:36:04,637 [INFO] [AutoProduction]   Processo: ROUTER
+2026-03-20 22:36:08,539 [INFO] [AutoProduction]   OK    18026.100.004.step  [2 furos modificados]
+2026-03-20 22:36:12,868 [INFO] [AutoProduction]   OK    18026.100.006.step  [2 furos modificados]
+2026-03-20 22:36:16,587 [INFO] [AutoProduction]   OK    18026.200.001.step  [1 furos modificados]
+2026-03-20 22:36:16,589 [INFO] [AutoProduction]   Processo: CNC
+2026-03-20 22:36:16,758 [INFO] [AutoProduction]   OK    18026.100.004.step
+2026-03-20 22:36:16,890 [INFO] [AutoProduction]   OK    18026.100.005.step
+2026-03-20 22:36:17,030 [INFO] [AutoProduction]   OK    18026.100.006.step
+2026-03-20 22:36:17,177 [INFO] [AutoProduction]   OK    18026.200.001.step
+2026-03-20 22:36:17,179 [INFO] [AutoProduction]   Processo: TORNO
+2026-03-20 22:36:17,337 [INFO] [AutoProduction]   OK    18026.100.010.step
+2026-03-20 22:36:17,339 [INFO] [AutoProduction] A gerar ROUTER.xlsx...
+2026-03-20 22:36:18,637 [INFO] [AutoProduction]   OK    Router.xlsx
+2026-03-20 22:36:18,638 [INFO] [AutoProduction] A gerar CNC.xlsx...
+2026-03-20 22:36:20,229 [INFO] [AutoProduction]   OK    CNC.xlsx
+2026-03-20 22:36:20,230 [INFO] [AutoProduction] A gerar TORNO.xlsx...
+2026-03-20 22:36:20,572 [INFO] [AutoProduction]   OK    Torno.xlsx
+2026-03-20 22:36:20,576 [INFO] [AutoProduction] ────────────────────────────────────────────────────────────────────
+2026-03-20 22:36:20,577 [INFO] [AutoProduction] Resultado: 8 exportado(s)  |  0 erro(s)
+2026-03-20 23:51:03,546 [INFO] [AutoProduction] A atualizar árvore PDM para 18026.100.900.SLDASM...
+2026-03-20 23:51:03,548 [INFO] [AutoProduction] Árvore PDM atualizada.

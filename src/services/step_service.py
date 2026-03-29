@@ -24,7 +24,7 @@ class StepService(BaseService):
             self.sw.connect()
 
             self._log(f"A abrir assembly: {os.path.basename(asm_path)}")
-            asm_doc, was_opened_by_us = self.sw.open_assembly(asm_path)
+            asm_doc, was_opened_by_us = self.sw.open_assembly_resolved(asm_path)
 
             self._log("A percorrer componentes...")
             all_parts = self.sw.get_all_parts(asm_doc)
@@ -48,11 +48,18 @@ class StepService(BaseService):
             self._set_progress(0, total)
             progress_i = 0
 
+            self._stop_event.clear()
+
             for proc_key, parts in process_parts.items():
                 if not parts: continue
                 self._log(f"  Processo: {proc_key.upper()}")
                 
                 for part in parts:
+                    if self._stop_event.is_set():
+                        self._log("Operação cancelada pelo utilizador.")
+                        self._finish(ok_count, err_count)
+                        return
+
                     success, msg = self._export_one(part, out_dir, proc_key == "router")
                     if success: ok_count += 1
                     else: err_count += 1
@@ -87,7 +94,7 @@ class StepService(BaseService):
             if is_router:
                 # Router Flow: Copy to tmp -> Modify Dowels -> Export -> Cleanup
                 tmp_path = self.sw.copy_part_to_tmp(path, get_temp_dir())
-                tmp_doc, _ = self.sw.open_assembly(tmp_path) # Opens as part but using open_assembly helper
+                tmp_doc, _ = self.sw.open_doc(tmp_path) # Auto-detects Part or Assembly
                 
                 # Dowel modification logic
                 holes = self.sw.get_dowel_holes(tmp_doc)
@@ -120,11 +127,6 @@ class StepService(BaseService):
             template_name, output_name, col_order, data_start_row = PROCESS_CONFIG[process_key]
             template_path = os.path.join(get_assets_dir(), template_name)
             
-            # Fallback for templates while assets/ is not populated (compatibility)
-            if not os.path.exists(template_path):
-                 from tools.exporter.paths import get_templates_dir
-                 template_path = os.path.join(get_templates_dir(), template_name)
-
             rows = [self.sw.get_part_data(p, all_parts) for p in parts]
             generate_excel(template_path, rows, os.path.join(out_dir, output_name), col_order, data_start_row)
             self._log(f"  OK    {output_name}")

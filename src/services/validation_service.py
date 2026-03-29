@@ -65,8 +65,10 @@ class ValidationService:
             if self._log: self._log(f"  VALIDAÇÃO: {violations} violações marcadas em {file_path}")
 
     def _find_header_row(self, sheet):
+        # Look for headers like 'Pos' or 'Qt' in first 10 rows, any column
         for r in range(1, 11):
-            val = str(sheet.cell(row=r, column=2).value or "")
-            if "Pos" in val or "Qt" in val:
-                return r
+            for c in range(1, 10):
+                val = str(sheet.cell(row=r, column=c).value or "").lower()
+                if any(k in val for k in ["pos", "item", "qt", "qty"]):
+                    return r
         return None

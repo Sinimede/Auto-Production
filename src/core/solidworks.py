@@ -1,12 +1,16 @@
-
+import win32api
+import win32con
+import subprocess
+import pythoncom
+import win32com.client
+from win32com.client import gencache
+import hashlib
+import olefile
 import os
 import shutil
 import numpy as np
 import re
 import unicodedata
-import pythoncom
-import win32com.client
-from win32com.client import gencache
 from typing import List, Optional, Tuple, Dict, Any
 from collections import namedtuple, Counter
 
@@ -46,23 +50,68 @@ def ensure_sw_connection(func):
 
 class SolidWorksClient:
     """
-    Unified client for interacting with SolidWorks COM API.
+    Unified client for interacting with SolidWorks COM API and Process management.
     Encapsulates SW 2024 quirks like early/late binding and callable-guards.
     """
     def __init__(self):
         self.sw = None
         self._mod = None
+        self._sw_exe_path = self._find_sw_exe()
+
+    def _find_sw_exe(self) -> str:
+        """Locates the SOLIDWORKS executable in common installation paths."""
+        common_paths = [
+            r"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\SLDWORKS.exe",
+            r"C:\Program Files\SOLIDWORKS 2024\SOLIDWORKS\SLDWORKS.exe",
+            r"C:\Program Files\SOLIDWORKS 2023\SOLIDWORKS\SLDWORKS.exe",
+        ]
+        for path in common_paths:
+            if os.path.exists(path):
+                return path
+        return ""
 
     def connect(self):
-        """Connects to the active SolidWorks instance."""
+        """Connects to the active SolidWorks instance with aggressive retry."""
+        if self.sw and self._is_alive():
+            return True
+            
+        print("DEBUG: SW Client - connect() called", flush=True)
         try:
+            # Clean up thread state
+            try: 
+                print("DEBUG: SW Client - CoUninitialize", flush=True)
+                pythoncom.CoUninitialize()
+            except: 
+                pass
+            print("DEBUG: SW Client - CoInitialize", flush=True)
             pythoncom.CoInitialize()
-            raw = win32com.client.GetActiveObject("SldWorks.Application")
+            
+            # Try to get active object
+            try:
+                print("DEBUG: SW Client - GetActiveObject", flush=True)
+                raw = win32com.client.GetActiveObject("SldWorks.Application")
+            except Exception as e:
+                print(f"DEBUG: SW Client - GetActiveObject failed ({e}), trying Dispatch", flush=True)
+                # Fallback to Dispatch (sometimes works when GetActiveObject fails)
+                raw = win32com.client.Dispatch("SldWorks.Application")
+            
+            if not raw:
+                print("DEBUG: SW Client - raw object is None", flush=True)
+                raise RuntimeError("SolidWorks não está a correr.")
+                
+            print("DEBUG: SW Client - Wrapping object", flush=True)
             self.sw = self._wrap(raw, "ISldWorks")
-            self.sw.Visible = True
+            # Try a simple call to verify responsiveness
+            print("DEBUG: SW Client - Checking RevisionNumber", flush=True)
+            self.sw.RevisionNumber()
+            print("DEBUG: SW Client - Connected successfully", flush=True)
             return True
         except Exception as e:
-            raise RuntimeError(f"Erro ao conectar ao SolidWorks: {e}")
+            print(f"DEBUG: SW Client - Exception in connect: {e}", flush=True)
+            err_msg = str(e)
+            if "-2147221021" in err_msg:
+                raise RuntimeError("SolidWorks está ocupado ou com um diálogo aberto. Feche todas as janelas no SolidWorks e tente novamente.")
+            return False
 
     def _is_alive(self) -> bool:
         """Checks if the SW COM object is still responsive."""
@@ -97,623 +146,549 @@ class SolidWorksClient:
             return obj
 
     def _safe_call(self, obj, attr_name: str, *args):
-        """Helper to handle SW 2024 callable-guards (methods behaving as properties)."""
+        """Helper to handle SW 2024 callable-guards and extract values from VARIANTs recursively."""
         try:
             ref = getattr(obj, attr_name)
             val = ref(*args) if callable(ref) else ref
-            if isinstance(val, tuple) and len(val) == 1:
-                return val[0]
+            
+            # Recursively unwrap VARIANTs and single-element tuples
+            for _ in range(5): # Limit recursion to avoid infinite loops
+                if hasattr(val, "value"): # win32com VARIANT
+                    val = val.value
+                elif isinstance(val, (tuple, list)) and len(val) == 1:
+                    val = val[0]
+                else:
+                    break
             return val
         except:
             return None
 
+    def set_read_only(self, path: str, read_only: bool):
+        """Sets or removes the Read-Only file attribute using win32api."""
+        path = os.path.normpath(os.path.abspath(path))
+        if not os.path.exists(path): return
+        
+        attrs = win32api.GetFileAttributes(path)
+        if read_only:
+            attrs |= win32con.FILE_ATTRIBUTE_READONLY
+        else:
+            attrs &= ~win32con.FILE_ATTRIBUTE_READONLY
+        win32api.SetFileAttributes(path, attrs)
+
+    def launch_sw_with_file(self, file_path: str):
+        """
+        PDM-style launch: 
+        1. Tries to connect to an active instance via COM.
+        2. If fails or not alive, launches the process via subprocess.
+        """
+        file_path = os.path.normpath(os.path.abspath(file_path))
+        
+        # 1. Try COM (Fastest if open)
+        try:
+            if self.connect():
+                self.open_doc(file_path)
+                return True
+        except:
+            pass
+            
+        # 2. Try Process Launch (If closed)
+        if self._sw_exe_path and os.path.exists(self._sw_exe_path):
+            print(f"DEBUG: Launching SW process: {self._sw_exe_path}")
+            subprocess.Popen([self._sw_exe_path, file_path])
+            return True
+        
+        # 3. Last Resort: OS Association
+        print("DEBUG: SW Exe not found, using OS association")
+        os.startfile(file_path)
+        return True
+
+    @ensure_sw_connection
+    def get_dependencies(self, path: str) -> List[str]:
+        """Returns a list of immediate dependencies for a SolidWorks document."""
+        path = os.path.normpath(os.path.abspath(path))
+        deps = self.sw.GetDocumentDependencies2(path, True, False, False)
+        if not deps:
+            return []
+        
+        paths = []
+        if isinstance(deps, tuple):
+            for i in range(0, len(deps), 2):
+                dep_path = os.path.normpath(deps[i])
+                if dep_path.lower() != path.lower() and dep_path not in paths:
+                    paths.append(dep_path)
+        return paths
+
     # --- Document Management ---
 
     @ensure_sw_connection
-    def open_assembly(self, path: str) -> Tuple[Any, bool]:
-        """Opens an assembly and returns (doc, was_opened_by_us)."""
+    def open_doc(self, path: str, doc_type: int = 0, silent: bool = False) -> Tuple[Any, bool]:
+        """Opens a SolidWorks document (Part, Assembly, Drawing) with auto-detection."""
         path = os.path.normpath(os.path.abspath(path))
+        ext = os.path.splitext(path)[1].lower()
         
-        # 1. Active Doc
-        active = self.sw.ActiveDoc
-        if active:
-            active_path = os.path.normpath(active.GetPathName())
-            if active_path.lower() == path.lower():
-                return active, False
-        
-        # 2. Open Docs
+        if doc_type == 0:
+            doc_type = 1 # swDocPART
+            if ext == ".sldasm": doc_type = 2 # swDocASSEMBLY
+            elif ext == ".slddrw": doc_type = 3 # swDocDRAWING
+            
+        # Check if already open
         existing = self.sw.GetOpenDocumentByName(path)
         if existing:
+            self.activate_doc(path)
             return existing, False
             
-        # 3. OpenDoc6
-        result = self.sw.OpenDoc6(path, 2, 0, "", 0, 0) # 2 = swDocASSEMBLY
+        # OpenDoc6 (Options: 1 for silent if requested, 0 otherwise)
+        options = 1 if silent else 0
+        result = self.sw.OpenDoc6(path, doc_type, options, "", 0, 0)
         doc = result[0] if isinstance(result, tuple) else result
         if not doc:
-            raise RuntimeError(f"Falha ao abrir assembly: {path}")
+            raise RuntimeError(f"Falha ao abrir documento: {path}")
+            
+        self.activate_doc(path)
         return doc, True
 
     @ensure_sw_connection
-    def close_doc(self, path: str):
-        self.sw.CloseDoc(path)
-
-    # --- Traversal & Data ---
+    def activate_doc(self, path: str):
+        """Brings the specified document to the front in SolidWorks."""
+        path = os.path.normpath(path)
+        self.sw.ActivateDoc3(path, False, 2, 0)
+        try:
+            frame = self.sw.Frame()
+            if frame: frame.Visible = True
+        except: pass
 
     @ensure_sw_connection
-    def get_all_parts(self, assembly_doc) -> List[Any]:
-        """Returns unique part components in the assembly."""
-        asm = self._wrap(assembly_doc, "IAssemblyDoc")
-        
-        # Resolve Lightweight (Late binding required in SW 2024 for this specific method)
-        try:
-            asm_raw = getattr(asm, "_dispobj_", None) or getattr(asm, "_oleobj_", None) or asm
-            win32com.client.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
-        except:
-            pass
-
-        components = None
-        try:
-            components = asm.GetComponents(False) # All levels
-        except:
-            pass
-            
-        if not components:
-            # Fallback to GetRootComponent3
-            config = assembly_doc.ConfigurationManager.ActiveConfiguration
-            root = self._safe_call(config, "GetRootComponent3", True)
-            components = self._collect_children(root)
-            
-        if not components:
-            return []
-            
-        parts = []
-        for comp in components:
-            comp = self._wrap(comp, "IComponent2")
-            model = self._safe_call(comp, "GetModelDoc2")
-            
-            if not model:
-                try:
-                    comp.SetComponentState(4) # Resolve
-                    model = self._safe_call(comp, "GetModelDoc2")
-                except:
-                    pass
-            
-            if model and self._safe_call(model, "GetType") == 1: # swDocPART
-                parts.append(comp)
-        
-        return self._deduplicate_by_path(parts)
-
-    def _collect_children(self, component) -> list:
-        result = []
-        if not component: return result
-        children = self._safe_call(component, "GetChildren")
-        if children:
-            if isinstance(children, tuple): children = list(children)
-            for child in children:
-                child_wrapped = self._wrap(child, "IComponent2")
-                result.append(child_wrapped)
-                result.extend(self._collect_children(child_wrapped))
-        return result
-
-    def _deduplicate_by_path(self, components: List) -> List:
-        seen = set()
-        unique = []
-        for comp in components:
-            path = self._safe_call(comp, "GetPathName")
-            if path:
-                path_lower = path.lower()
-                if path_lower not in seen:
-                    seen.add(path_lower)
-                    unique.append(comp)
-        return unique
+    def close_doc(self, path: str):
+        """Closes a document discarding any changes."""
+        path = os.path.normpath(path)
+        doc = self.sw.GetOpenDocumentByName(path)
+        if doc:
+            try:
+                ref = doc.SetSaveFlag
+                if callable(ref): ref()
+            except: pass
+        self.sw.CloseDoc(path)
 
     # --- Property Management ---
 
-    def get_custom_property(self, model_doc, prop_name: str) -> str:
-        """
-        Gets evaluated custom property, handling SW 2024 quirks.
-        Checks both document-level and active configuration-level properties.
-        """
-        if not model_doc:
-            return ""
-            
+    def get_file_hash(self, file_path: str) -> str:
+        """Returns the MD5 hash of a file to check for changes."""
+        hasher = hashlib.md5()
         try:
-            # 1. Get Extension object safely
-            ext = self._safe_call(model_doc, "Extension")
-            if not ext: return ""
-            
-            # 2. Try Config-specific properties first (most common for BOM)
-            config_mgr = self._safe_call(model_doc, "ConfigurationManager")
-            active_cfg = self._safe_call(config_mgr, "ActiveConfiguration")
-            cfg_name = self._safe_call(active_cfg, "Name") if active_cfg else ""
-            
-            # Try Config Manager
-            val = self._read_from_mgr(ext, cfg_name, prop_name)
-            
-            # 3. Fallback to Document-level properties ("")
-            if not val:
-                val = self._read_from_mgr(ext, "", prop_name)
-            
-            # 4. Clean up results
-            val = val.strip('"\' ')
-            
-            # 5. Handle special case: Material expression
-            if prop_name == "Material" and (not val or _SW_EXPR_RE.match(val)):
-                val = self._get_part_material(model_doc)
-                
-            return val
-        except Exception:
-            return ""
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hasher.update(chunk)
+            return hasher.hexdigest()
+        except: return ""
 
-    def _read_from_mgr(self, extension, config_name: str, prop_name: str) -> str:
-        """Helper to read property from a specific CustomPropertyManager."""
+    def get_custom_properties_fast(self, file_path: str) -> Dict[str, str]:
+        """Extracts custom properties using olefile WITHOUT opening SolidWorks."""
+        if not olefile.isOleFile(file_path): return {}
+        props = {}
         try:
-            mgr = self._safe_call(extension, "CustomPropertyManager", config_name)
-            if not mgr: return ""
+            with olefile.OleFileIO(file_path) as ole:
+                if ole.exists('\005SummaryInformation'):
+                    si = ole.getproperties('\005SummaryInformation')
+                    if 2 in si: props['Description'] = str(si[2])
+                
+                # Best effort mapping for SW common props
+                mapping = {
+                    "Description": ["Description", "Descrição", "Title"],
+                    "Material": ["Material"],
+                    "Weight": ["Weight", "Peso"],
+                    "Revision": ["Revision", "Revisão"],
+                    "Treatment": ["Treatment", "Tratamento"]
+                }
+                
+                result = {}
+                # (Simple mapping logic here, full OLE traversal is complex)
+                for k, aliases in mapping.items():
+                    if k in props: result[k] = props[k]
+                return result
+        except: return {}
+
+    def get_custom_property(self, model_doc, prop_name: str) -> str:
+        if not model_doc: return ""
+        try:
+            # Step 1: Try Get4 with useCached=True (handles expressions)
+            ext = self._safe_call(model_doc, "Extension")
+            if ext:
+                mgr = self._safe_call(ext, "CustomPropertyManager", "")
+                if mgr:
+                    res = mgr.Get4(prop_name, True)
+                    if isinstance(res, tuple) and len(res) > 2:
+                        val = str(res[2] or res[1]).strip('"\' ')
+                        if val and not _SW_EXPR_RE.match(val):
+                            return val
+
+            # Step 2: Fallback to simpler GetCustomInfoValue
+            val = self._safe_call(model_doc, "GetCustomInfoValue", "", prop_name)
+            if val: return str(val).strip('"\' ')
             
-            # Try Get4 (Resolved value)
-            # Get4 returns (retval, value, resolvedValue, wasResolved)
-            res = mgr.Get4(prop_name, True)
-            if isinstance(res, tuple) and len(res) > 2:
-                resolved = str(res[2]).strip()
-                raw = str(res[1]).strip()
-                return resolved if resolved else raw
-            
-            # Fallback to simple Get
-            return str(mgr.Get(prop_name) or "").strip()
-        except:
             return ""
+        except: return ""
+
+    def get_custom_properties(self, file_path: str) -> Dict[str, str]:
+        path = os.path.normpath(os.path.abspath(file_path))
+        ext = os.path.splitext(path)[1].lower()
+        doc_type = {".sldprt": 1, ".sldasm": 2, ".slddrw": 3}.get(ext, 1)
+        
+        # 1. Check if already open
+        model_doc = self.sw.GetOpenDocumentByName(path)
+        was_open = model_doc is not None
+        
+        if not model_doc:
+            result = self.sw.OpenDoc6(path, doc_type, 3, "", 0, 0)
+            model_doc = result[0] if isinstance(result, tuple) else result
+            
+        if not model_doc: return {}
+            
+        try:
+            props = {
+                "Description": self.get_custom_property(model_doc, "Description") or self.get_custom_property(model_doc, "Descrição"),
+                "Material": self.get_custom_property(model_doc, "Material"),
+                "Weight": self.get_custom_property(model_doc, "Weight") or self.get_custom_property(model_doc, "Peso"),
+                "Revision": self.get_custom_property(model_doc, "Revision") or self.get_custom_property(model_doc, "Revisão"),
+                "Treatment": self.get_custom_property(model_doc, "Treatment") or self.get_custom_property(model_doc, "Tratamento")
+            }
+            # Special case for Material expressions
+            if props["Material"] and _SW_EXPR_RE.match(props["Material"]):
+                props["Material"] = self._get_part_material(model_doc) or props["Material"]
+
+            return {k: v for k, v in props.items() if v}
+        finally:
+            if not was_open: self.sw.CloseDoc(path)
 
     def _get_part_material(self, model_doc) -> str:
+        """Get the assigned material name directly from IPartDoc."""
         try:
             part = self._wrap(model_doc, "IPartDoc")
             mat = part.GetMaterialPropertyName2("")
             if isinstance(mat, tuple): mat = mat[0]
-            return str(mat or "").strip()
-        except:
-            return ""
+            return str(mat).strip() if mat else ""
+        except: return ""
 
-    # --- Export ---
+    # --- Engineering & Export Utilities ---
 
     @ensure_sw_connection
-    def export_to_step(self, doc, output_path: str):
-        """Exports document to STEP AP214 using late-binding SaveAs4."""
-        import pythoncom as _pycom
-        raw = getattr(doc, "_dispobj_", None) or getattr(doc, "_oleobj_", None) or doc
-        late = win32com.client.Dispatch(raw)
-        byref_i4 = lambda: win32com.client.VARIANT(_pycom.VT_BYREF | _pycom.VT_I4, 0)
+    def export_part_to_dxf(self, sldprt_path: str, output_dxf_path: str):
+        """Export sheet metal flat pattern to DXF."""
+        doc, was_opened = self.open_doc(sldprt_path, 1, silent=True)
+        try:
+            part = self._wrap(doc, "IPartDoc")
+            # 1 = swExportFlatPatternViewOptions_Geometry
+            if not part.ExportFlatPatternView(output_dxf_path, 1):
+                raise RuntimeError("ExportFlatPatternView falhou.")
+        finally:
+            if was_opened: self.close_doc(sldprt_path)
+
+    @ensure_sw_connection
+    def export_drawing_to_dxf(self, slddrw_path: str, output_dxf_path: str):
+        """Export drawing to DXF via SaveAs4."""
+        doc, was_opened = self.open_doc(slddrw_path, 3, silent=True)
+        try:
+            import pythoncom
+            late = win32com.client.Dispatch(self._get_raw_obj(doc))
+            byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            res = late.SaveAs4(output_dxf_path, 0, 1, byref_i4(), byref_i4())
+            if not (res[0] if isinstance(res, tuple) else res):
+                raise RuntimeError("SaveAs4 falhou para DXF.")
+        finally:
+            if was_opened: self.close_doc(slddrw_path)
+
+    @ensure_sw_connection
+    def export_to_step(self, file_path: str, output_step_path: str):
+        """Export part or assembly to STEP AP214."""
+        doc, was_opened = self.open_doc(file_path, silent=True)
+        try:
+            import pythoncom
+            late = win32com.client.Dispatch(self._get_raw_obj(doc))
+            byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            # 0 = swSaveAsCurrentVersion, 1 = swSaveAsOptions_Silent
+            res = late.SaveAs4(output_step_path, 0, 1, byref_i4(), byref_i4())
+            if not (res[0] if isinstance(res, tuple) else res):
+                raise RuntimeError("SaveAs4 falhou para STEP.")
+        finally:
+            if was_opened: self.close_doc(file_path)
+
+    def save_silent(self, doc):
+        """Saves a document silently to avoid UI prompts on close."""
+        try:
+            import pythoncom
+            late = win32com.client.Dispatch(self._get_raw_obj(doc))
+            byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+            late.Save3(1, byref_i4(), byref_i4()) # 1 = swSaveAsOptions_Silent
+        except: pass
+
+    # --- BOM & Components ---
+
+    @ensure_sw_connection
+    def get_all_parts(self, assembly_doc) -> List[Any]:
+        """Recursive retrieval of all non-suppressed parts."""
+        asm = self._wrap(assembly_doc, "IAssemblyDoc")
+        # Late binding for ResolveAllLightweightComponents
+        try:
+            win32com.client.Dispatch(self._get_raw_obj(asm)).ResolveAllLightweightComponents(False)
+        except: pass
+
+        components = asm.GetComponents(False)
+        if not components: return []
         
-        # SaveAs4 args: Name, Version, Options, Errors, Warnings
-        res_raw = late.SaveAs4(output_path, 0, 1, byref_i4(), byref_i4())
-        res = res_raw[0] if isinstance(res_raw, tuple) else res_raw
-        if not res:
-            raise RuntimeError(f"Falha ao exportar STEP: {output_path}")
-
-    @ensure_sw_connection
-    def export_to_dxf(self, component, output_path: str):
-        """Exports sheet metal flat pattern to DXF."""
-        model = self._safe_call(component, "GetModelDoc2")
-        part = self._wrap(model, "IPartDoc")
-        res = part.ExportFlatPatternView(output_path, 1) # 1 = Geometry
-        if not res:
-            raise RuntimeError(f"Falha ao exportar DXF: {output_path}")
-
-    # --- BOM Traversal ---
+        parts = []
+        for comp in components:
+            comp = self._wrap(comp, "IComponent2")
+            model = comp.GetModelDoc2()
+            if model and self._safe_call(model, "GetType") == 1:
+                parts.append(comp)
+        return parts
 
     @ensure_sw_connection
     def get_bom_components(self, assembly_doc) -> Tuple[List[BomComponent], List[str]]:
-        """Returns a flat list of BomComponent from the assembly."""
+        """Traverse assembly and classify components (produção vs comercial)."""
         bom_flat = []
         warnings = []
         
-        # Resolve Lightweight (Late binding)
         try:
-            asm_raw = self._get_raw_obj(assembly_doc)
-            win32com.client.Dispatch(asm_raw).ResolveAllLightweightComponents(False)
+            config = assembly_doc.ConfigurationManager.ActiveConfiguration
+            root = self._wrap(config.GetRootComponent3(True), "IComponent2")
+            children = root.GetChildren()
+            if children:
+                for child in children:
+                    self._bom_traverse(child, bom_flat, warnings)
         except Exception as e:
-            warnings.append(f"Aviso: Falha ao resolver componentes: {e}")
-
-        config = self._safe_call(assembly_doc, "ConfigurationManager").ActiveConfiguration
-        root = self._safe_call(config, "GetRootComponent3", True)
-        
-        children = self._safe_call(root, "GetChildren")
-        if children:
-            if isinstance(children, tuple): children = list(children)
-            for child in children:
-                self._bom_traverse(child, bom_flat, warnings)
-        
+            warnings.append(f"Erro na travessia BOM: {e}")
+            
         return bom_flat, warnings
 
     def _bom_traverse(self, comp, bom_flat, warnings):
-        comp = self._wrap(comp, "IComponent2")
-        
-        # Check suppression
-        state = self._safe_call(comp, "GetSuppression")
-        if state is not None and int(state) == 0: return # Suppressed
-
-        path = self._safe_call(comp, "GetPathName")
-        if not path: return
-        path = os.path.normpath(path)
-        
-        basename = os.path.splitext(os.path.basename(path))[0]
-        basename = re.sub(r'-\d+$', '', basename) # Strip instance suffix
-
-        model = self._safe_call(comp, "GetModelDoc2")
-        
-        if not model:
-            # Lightweight fallback
-            ext = os.path.splitext(path)[1].lower()
-            if ext == '.sldasm':
-                children = self._safe_call(comp, "GetChildren")
-                if children:
-                    for child in children: self._bom_traverse(child, bom_flat, warnings)
-            elif ext == '.sldprt':
-                comp_type = self._classify_by_name(basename)
-                if comp_type:
-                    bom_flat.append(BomComponent(comp, path, comp_type))
-                else:
-                    warnings.append(f"Componente ignorado (nome não reconhecido): {basename}")
-            return
-
-        doc_type = self._safe_call(model, "GetType")
-        comp_type = self._classify_by_name(basename)
-
-        if comp_type == "comercial":
-            bom_flat.append(BomComponent(comp, path, "comercial"))
-            return
-
-        if doc_type == 1: # swDocPART
-            if comp_type:
-                bom_flat.append(BomComponent(comp, path, comp_type))
-            else:
-                warnings.append(f"Componente ignorado (nome não reconhecido): {basename}")
-        elif doc_type == 2: # swDocASSEMBLY
-            children = self._safe_call(comp, "GetChildren")
-            if children:
-                for child in children: self._bom_traverse(child, bom_flat, warnings)
-
-    def _classify_by_name(self, basename: str) -> Optional[str]:
-        """Classifies component based on standard naming convention."""
-        # 3-letter prefix (e.g., BOS.040.001) -> comercial
-        if re.match(r'^[A-Za-z]{3}\.', basename):
-            return "comercial"
-        
-        # Numeric group pattern (e.g., 18026.800.001)
-        m = re.match(r'^\d+\.(\d+)\.\d+$', basename)
-        if m:
-            group = int(m.group(1))
-            return "comercial" if group == 800 else "producao"
-        
-        return None
-
-    # --- Dowel Holes (Router Flow) ---
-
-    @ensure_sw_connection
-    def get_dowel_holes(self, part_doc) -> List[HoleInfo]:
-        """Returns a list of Hole Wizard Dowel holes."""
-        results = []
-        part = self._wrap(part_doc, "IPartDoc")
-        feat = self._safe_call(part, "FirstFeature")
-        
-        while feat:
-            feat_wrapped = self._wrap(feat, "IFeature")
-            if self._safe_call(feat_wrapped, "GetTypeName2") == "HoleWzd":
-                defn = feat_wrapped.GetDefinition()
-                feat_data = self._wrap(defn, "IWizardHoleFeatureData2")
-                try:
-                    feat_data.AccessSelections(part_doc, None)
-                    ft2 = self._safe_call(feat_data, "FastenerType2")
-                    if ft2 is not None and int(ft2) in _DOWEL_FASTENER_TYPES:
-                        size_str = self._safe_call(feat_data, "FastenerSize")
-                        m = re.search(r'[\d.]+', size_str)
-                        if m:
-                            diameter_m = float(m.group()) / 1000.0
-                            results.append(HoleInfo(feature=feat_wrapped, original_diameter_m=diameter_m))
-                finally:
-                    try: feat_data.ReleaseSelectionAccess()
-                    except: pass
-            feat = self._safe_call(feat_wrapped, "GetNextFeature")
-        return results
-
-    @ensure_sw_connection
-    def modify_dowel_diameter(self, part_doc, hole: HoleInfo, new_diameter_m: float):
-        """Changes a dowel hole's diameter."""
-        feat = hole.feature
-        defn = feat.GetDefinition()
-        feat_data = self._wrap(defn, "IWizardHoleFeatureData2")
-        feat_data.AccessSelections(part_doc, None)
+        """Recursive BOM worker."""
         try:
-            feat_data.Type = 0 # Simple hole
-            feat_data.Diameter = new_diameter_m
-            res = feat.ModifyDefinition(defn, part_doc, None)
-            if not res: raise RuntimeError("ModifyDefinition falhou")
-        finally:
-            try: feat_data.ReleaseSelectionAccess()
-            except: pass
-        part_doc.EditRebuild3()
+            comp = self._wrap(comp, "IComponent2")
+            state = self._safe_call(comp, "GetSuppression")
+            if state == 0: return # Suppressed
+            
+            path = os.path.normpath(comp.GetPathName())
+            basename = os.path.splitext(os.path.basename(path))[0]
+            basename = re.sub(r'-\d+$', '', basename)
+            
+            model = comp.GetModelDoc2()
+            doc_type = self._safe_call(model, "GetType") if model else (1 if ".sldprt" in path.lower() else 2)
 
-    @ensure_sw_connection
-    def save_silent(self, doc):
-        """Saves document silently using late binding."""
-        raw = self._get_raw_obj(doc)
-        late = win32com.client.Dispatch(raw)
-        byref_i4 = lambda: win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-        late.Save3(1, byref_i4(), byref_i4()) # 1 = Silent
+            # Classification Logic
+            is_comercial = bool(re.match(r'^\d+\.800\.\d+$', basename) or re.match(r'^[A-Za-z]{3}\.', basename))
+            
+            if is_comercial:
+                bom_flat.append(BomComponent(comp, path, "comercial"))
+                return
+            
+            if doc_type == 1: # Part
+                bom_flat.append(BomComponent(comp, path, "producao"))
+            elif doc_type == 2: # Assembly
+                children = comp.GetChildren()
+                if children:
+                    for child in children:
+                        self._bom_traverse(child, bom_flat, warnings)
+        except Exception as e:
+            warnings.append(f"Erro no componente {comp.GetPathName()}: {e}")
 
-    def copy_part_to_tmp(self, sldprt_path: str, tmp_dir: str) -> str:
-        os.makedirs(tmp_dir, exist_ok=True)
-        name, ext = os.path.splitext(os.path.basename(sldprt_path))
-        tmp_path = os.path.join(tmp_dir, f"{name}_step_tmp{ext}")
-        shutil.copy2(sldprt_path, tmp_path)
-        return tmp_path
-
-    # --- Aluminum Profiles (Weldments) ---
-
-    def is_perfil_aluminio(self, component) -> bool:
-        val = self.get_corte_fabrico(component)
-        return bool(val) and "perfil aluminio" in val
-
-    @ensure_sw_connection
-    def get_perfis_parts(self, asm_doc) -> List[Tuple[str, int]]:
-        """Returns list of (path, count) for all aluminum profiles."""
-        all_parts = self.get_all_parts(asm_doc)
-        perfil_parts = [p for p in all_parts if self.is_perfil_aluminio(p)]
-        unique = self._deduplicate_by_path(perfil_parts)
-        
-        result = []
-        for comp in unique:
-            path = self._safe_call(comp, "GetPathName")
-            if path:
-                path = os.path.normpath(path)
-                count = self.count_instances(all_parts, path)
-                result.append((path, count))
-        return result
+    # --- Weldments & Capping Detection ---
 
     @ensure_sw_connection
     def get_weldment_cut_list(self, part_path: str) -> Tuple[List[CutListItem], List[str]]:
-        """Extracts cut list items from a weldment part, including D17 capping logic."""
+        """Read weldment cut list with capping detection."""
         part_path = os.path.normpath(os.path.abspath(part_path))
-        doc = None
+        doc, was_opened = self.open_doc(part_path, 1, silent=True)
         warnings = []
+        items = []
+        
         try:
-            # Open silently
-            result = self.sw.OpenDoc6(part_path, 1, 1, "", 0, 0)
-            doc = result[0] if isinstance(result, tuple) else result
             part = self._wrap(doc, "IPartDoc")
+            feat = self._wrap(part.FirstFeature(), "IFeature")
             
-            items = []
-            feat = self._safe_call(part, "FirstFeature")
             while feat:
-                fw = self._wrap(feat, "IFeature")
-                if self._safe_call(fw, "GetTypeName2") == "CutListFolder":
-                    if not self._safe_call(fw, "IsSuppressed"):
-                        mgr = fw.CustomPropertyManager
-                        desc = self._get_mgr_prop(mgr, "DESCRIPTION")
-                        length_str = self._get_mgr_prop(mgr, "LENGTH")
-                        qty_str = self._get_mgr_prop(mgr, "QUANTITY") or self._get_mgr_prop(mgr, "QTY")
+                if self._safe_call(feat, "GetTypeName2") == "CutListFolder":
+                    if not self._safe_call(feat, "IsSuppressed"):
+                        desc = self._get_cut_list_prop(feat, "DESCRIPTION")
+                        length_str = self._get_cut_list_prop(feat, "LENGTH")
+                        qty_str = self._get_cut_list_prop(feat, "QUANTITY") or self._get_cut_list_prop(feat, "QTY")
                         
                         try:
                             length_mm = float(length_str)
                             qty = int(float(qty_str)) if qty_str else 1
                             if desc: items.append(CutListItem(desc, length_mm, qty))
                         except: pass
-                feat = self._safe_call(fw, "GetNextFeature")
+                feat = self._wrap(feat.GetNextFeature(), "IFeature")
 
-            # --- Capping Detection ---
-            try:
-                bodies_raw = part.GetBodies2(0, False)
-                if bodies_raw:
-                    if isinstance(bodies_raw, tuple): bodies_raw = list(bodies_raw)
-                    all_bodies = [self._wrap(b, "IBody2") for b in bodies_raw if b]
-                    
-                    if all_bodies and items:
-                        item_caps, item_cross, cap_warns = self._detect_capped_ends(all_bodies, items, part_path)
-                        warnings.extend(cap_warns)
+            # Capping Detection logic
+            bodies = self._wrap(part.GetBodies2(0, False), "IBody2")
+            if bodies and items:
+                item_caps, item_cross_dims, cap_warns = self._detect_capped_ends(bodies, items, part_path)
+                warnings.extend(cap_warns)
+                
+                if item_caps:
+                    expanded = []
+                    for i, item in enumerate(items):
+                        caps = item_caps.get(i)
+                        if not caps:
+                            expanded.append(item)
+                            continue
                         
-                        expanded = []
-                        for i, item in enumerate(items):
-                            caps = item_caps.get(i)
-                            if not caps:
-                                expanded.append(item)
-                                continue
-                            
-                            # Determine holes per end
-                            holes_per_end = self._holes_from_desc(item.description)
-                            if holes_per_end is None:
-                                cross = item_cross.get(i)[0] if item_cross.get(i) else []
-                                holes_per_end = self.classify_profile_holes(cross) if cross else "VERIFICAR"
-                            
-                            counts = Counter(caps)
-                            for capped_ends in sorted(counts, reverse=True):
-                                suffix = self._d17_suffix(capped_ends, holes_per_end)
-                                expanded.append(CutListItem(item.description + suffix, item.length_mm, counts[capped_ends]))
-                        items = expanded
-            except Exception as e:
-                warnings.append(f"Capping detection falhou: {e}")
+                        holes_per_end = self._holes_per_end_from_desc(item.description)
+                        state_counter = Counter(caps)
+                        for capped_count, qty in state_counter.items():
+                            suffix = self._d17_suffix(capped_count, holes_per_end)
+                            expanded.append(CutListItem(item.description + suffix, item.length_mm, qty))
+                    items = expanded
 
             return items, warnings
         finally:
-            if doc: self.sw.CloseDoc(part_path)
+            if was_opened: self.close_doc(part_path)
 
-    def _get_mgr_prop(self, mgr, name):
+    def _get_cut_list_prop(self, feat, prop_name: str) -> str:
         try:
-            res = mgr.Get4(name, False)
-            if isinstance(res, tuple) and len(res) > 1:
-                return str(res[2] if (len(res) > 2 and res[2]) else res[1]).strip()
-            return str(mgr.Get(name) or "").strip()
+            mgr = feat.CustomPropertyManager
+            res = mgr.Get4(prop_name, False)
+            if isinstance(res, tuple) and len(res) > 2:
+                return str(res[2] or res[1]).strip()
+            return str(mgr.Get(prop_name)).strip()
         except: return ""
 
-    def _detect_capped_ends(self, bodies, raw_items, part_path):
+    def _detect_capped_ends(self, bodies, items, part_path):
+        """Advanced bounding-box containment check for aluminum profiles."""
         item_caps = {}
-        item_cross = {}
+        item_cross_dims = {}
         warnings = []
         epsilon = 0.0001 # 0.1mm
         
         body_data = []
-        for body in bodies:
+        for body in (bodies if isinstance(bodies, list) else [bodies]):
             try:
                 box = body.GetBodyBox()
-                if not (isinstance(box, tuple) and len(box) >= 6): continue
+                if not box or len(box) < 6: continue
+                
                 xmin, ymin, zmin, xmax, ymax, zmax = box[:6]
                 center = np.array([(xmin+xmax)/2, (ymin+ymax)/2, (zmin+zmax)/2])
-                extents = [(xmax-xmin)*1000, (ymax-ymin)*1000, (zmax-zmin)*1000]
+                extents_mm = [(xmax-xmin)*1000, (ymax-ymin)*1000, (zmax-zmin)*1000]
                 
-                axis_idx, length, cross = self.select_length_axis(extents, raw_items)
-                axis = np.zeros(3)
+                # Select length axis
+                axis_idx, length_mm, cross = self._select_length_axis(extents_mm, items)
                 if axis_idx is not None:
+                    axis = np.zeros(3)
                     axis[axis_idx] = 1.0
-                    body_data.append({'center': center, 'axis': axis, 'len': length, 'bbox': box, 'cross': cross})
-                else:
-                    # Capper body
-                    body_data.append({'center': center, 'axis': None, 'len': None, 'bbox': box, 'cross': None})
+                    body_data.append({"center": center, "axis": axis, "length": length_mm, "bbox": box, "cross": cross})
             except: pass
 
-        # Associate and Check
-        for i, b1 in enumerate(body_data):
-            if b1['len'] is None: continue
-            
-            # Find item index
-            item_idx = None
-            for idx, item in enumerate(raw_items):
-                if abs(item.length_mm - b1['len']) <= LENGTH_MATCH_TOLERANCE_MM:
-                    item_idx = idx; break
-            
+        # Map bodies to items (round-robin)
+        body_item_idx = []
+        assign_counts = {}
+        for b in body_data:
+            matching = [i for i, item in enumerate(items) if abs(item.length_mm - b["length"]) <= LENGTH_MATCH_TOLERANCE_MM]
+            if matching:
+                chosen = min(matching, key=lambda i: assign_counts.get(i, 0))
+                assign_counts[chosen] = assign_counts.get(chosen, 0) + 1
+                body_item_idx.append(chosen)
+            else:
+                body_item_idx.append(None)
+
+        # Containment check
+        for i, b in enumerate(body_data):
+            item_idx = body_item_idx[i]
             if item_idx is None: continue
-            item_cross.setdefault(item_idx, []).append(b1['cross'])
-
-            # Points
-            p1 = b1['center'] + ((b1['len']/2000.0) + epsilon) * b1['axis']
-            p2 = b1['center'] - ((b1['len']/2000.0) + epsilon) * b1['axis']
             
-            cap1 = cap2 = False
-            for j, b2 in enumerate(body_data):
+            half = (b["length"]/1000)/2
+            test1 = b["center"] + (half + epsilon) * b["axis"]
+            test2 = b["center"] - (half + epsilon) * b["axis"]
+            
+            capped = 0
+            for j, other in enumerate(body_data):
                 if i == j: continue
-                if not cap1: cap1 = self._bbox_contains(b2['bbox'], p1)
-                if not cap2: cap2 = self._bbox_contains(b2['bbox'], p2)
+                if self._bbox_contains(other["bbox"], test1): capped += 1
+                if self._bbox_contains(other["bbox"], test2): capped += 1
             
-            item_caps.setdefault(item_idx, []).append(int(cap1) + int(cap2))
+            item_caps.setdefault(item_idx, []).append(min(capped, 2))
             
-        return item_caps, item_cross, warnings
+        return item_caps, item_cross_dims, warnings
 
-    def _bbox_contains(self, bbox, p):
-        return bbox[0] <= p[0] <= bbox[3] and bbox[1] <= p[1] <= bbox[4] and bbox[2] <= p[2] <= bbox[5]
+    def _select_length_axis(self, extents_mm, items):
+        candidates = []
+        for i, ext in enumerate(extents_mm):
+            for item in items:
+                if abs(item.length_mm - ext) <= LENGTH_MATCH_TOLERANCE_MM:
+                    candidates.append((ext, i))
+                    break
+        if not candidates: return None, None, None
+        _, idx = max(candidates, key=lambda x: x[0])
+        cross = sorted(e for j, e in enumerate(extents_mm) if j != idx)
+        return idx, extents_mm[idx], cross
 
-    def _holes_from_desc(self, desc):
-        d = desc.upper()
-        if "45X90" in d or "90X45" in d: return 2
-        if "45X45" in d: return 1
-        return None
+    def _bbox_contains(self, bbox, pt):
+        return bbox[0] <= pt[0] <= bbox[3] and bbox[1] <= pt[1] <= bbox[4] and bbox[2] <= pt[2] <= bbox[5]
 
-    def _d17_suffix(self, capped, holes):
-        if capped == 0: return ""
-        if holes == "VERIFICAR": return " VERIFICAR FURAÇÕES"
-        if holes == 1: return {1: " D17", 2: " D17/D17"}.get(capped, "")
-        if holes == 2: return {1: " D17/D17/-/-", 2: " D17/D17/D17/D17"}.get(capped, "")
+    def _holes_per_end_from_desc(self, description):
+        desc = description.upper()
+        if "45X90" in desc or "90X45" in desc: return 2
+        if "45X45" in desc: return 1
+        return 1 # Default
+
+    def _d17_suffix(self, capped_ends, holes_per_end):
+        if capped_ends == 0: return ""
+        if holes_per_end == 1:
+            return {1: " D17", 2: " D17/D17"}.get(capped_ends, "")
+        if holes_per_end == 2:
+            return {1: " D17/D17/-/-", 2: " D17/D17/D17/D17"}.get(capped_ends, "")
         return ""
 
-    # --- Classification ---
+    # --- Dowel Hole Modification ---
 
-    def _normalize_corte(self, val: str) -> str:
-        nfkd = unicodedata.normalize("NFD", val.lower())
-        return "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    @ensure_sw_connection
+    def get_dowel_holes(self, part_doc) -> List[HoleInfo]:
+        results = []
+        part = self._wrap(part_doc, "IPartDoc")
+        feat = self._wrap(part.FirstFeature(), "IFeature")
+        while feat:
+            if self._safe_call(feat, "GetTypeName2") == "HoleWzd":
+                defn = self._wrap(feat.GetDefinition(), "IWizardHoleFeatureData2")
+                try:
+                    defn.AccessSelections(part_doc, None)
+                    ft2 = self._safe_call(defn, "FastenerType2")
+                    if ft2 in _DOWEL_FASTENER_TYPES:
+                        size_str = defn.FastenerSize
+                        m = re.search(r'[\d.]+', size_str)
+                        if m:
+                            results.append(HoleInfo(feature=feat, original_diameter_m=float(m.group())/1000))
+                finally:
+                    try: defn.ReleaseSelectionAccess()
+                    except: pass
+            feat = self._wrap(feat.GetNextFeature(), "IFeature")
+        return results
 
-    def get_corte_fabrico(self, component) -> str:
-        model = self._safe_call(component, "GetModelDoc2")
-        if not model: return ""
-        val = self.get_custom_property(model, "Corte_Fabrico")
-        return self._normalize_corte(val)
+    @ensure_sw_connection
+    def modify_dowel_diameter(self, part_doc, hole: HoleInfo, new_diameter_m: float):
+        feat = hole.feature
+        defn = self._wrap(feat.GetDefinition(), "IWizardHoleFeatureData2")
+        defn.AccessSelections(part_doc, None)
+        try:
+            defn.Type = 0 # swHoleType_Simple
+            defn.Diameter = new_diameter_m
+            if not feat.ModifyDefinition(defn, part_doc, None):
+                raise RuntimeError("ModifyDefinition falhou.")
+        finally:
+            try: defn.ReleaseSelectionAccess()
+            except: pass
+        part_doc.EditRebuild3()
 
-    def is_laser_part(self, component) -> bool:
-        val = self.get_corte_fabrico(component)
-        return "laser" in val and "soldadura" not in val
+    # --- Extra Utilities ---
 
-    def is_protecoes_part(self, component) -> bool:
-        val = self.get_corte_fabrico(component)
-        return "protecoes" in val
-
-    def is_step_part(self, component) -> bool:
-        val = self.get_corte_fabrico(component)
-        return any(k in val for k in ("router", "cnc", "torno"))
-
-    def get_part_data(self, component, all_components: list) -> dict:
-        path = self._safe_call(component, "GetPathName")
-        model = self._safe_call(component, "GetModelDoc2")
-        
-        data = {
-            "qty": self.count_instances(all_components, path),
-            "part_number": os.path.splitext(os.path.basename(path))[0],
-            "espessura": self.get_thickness(model)
-        }
-        
-        for prop in ("Description", "Corte_Fabrico", "Simetria", "Material", "TratSuperficial"):
-            data[prop] = self.get_custom_property(model, prop)
-            
-        return data
-
-    def count_instances(self, all_components: list, part_path: str) -> int:
-        target = os.path.normpath(part_path).lower()
-        count = 0
-        for comp in all_components:
-            path = self._safe_call(comp, "GetPathName")
-            if path and os.path.normpath(path).lower() == target:
-                state = self._safe_call(comp, "GetSuppression")
-                if state is not None and int(state) != 0: # Not suppressed
-                    count += 1
-        return count
+    def _get_raw_obj(self, obj):
+        return getattr(obj, "_oleobj_", None) or getattr(obj, "_dispobj_", None) or obj
 
     def get_thickness(self, model_doc) -> Optional[float]:
         if not model_doc: return None
         try:
-            # Check SheetMetal
             part = self._wrap(model_doc, "IPartDoc")
-            feat = self._safe_call(part, "FirstFeature")
-            while feat:
-                feat_wrapped = self._wrap(feat, "IFeature")
-                if self._safe_call(feat_wrapped, "GetTypeName2") == "SheetMetal":
-                    defn = feat_wrapped.GetDefinition()
-                    late = win32com.client.Dispatch(self._get_raw_obj(defn))
-                    thickness_m = late.Thickness
-                    return round(thickness_m * 1000, 2)
-                feat = self._safe_call(feat_wrapped, "GetNextFeature")
-            
-            # Fallback to BBox
             box = part.GetPartBox(True)
             dx = abs(box[3] - box[0])
             dy = abs(box[4] - box[1])
             dz = abs(box[5] - box[2])
             return round(min(dx, dy, dz) * 1000, 2)
-        except:
-            return None
-
-    def _get_raw_obj(self, obj):
-        return getattr(obj, "_dispobj_", None) or getattr(obj, "_oleobj_", None) or obj
-
-    # --- Geometry Helpers ---
-
-    def select_length_axis(self, extents_mm: list, raw_items: list) -> tuple:
-        if not raw_items:
-            return (None, None, None)
-        candidates = []
-        for i, extent in enumerate(extents_mm):
-            for item in raw_items:
-                if abs(item.length_mm - extent) <= LENGTH_MATCH_TOLERANCE_MM:
-                    candidates.append((extent, i))
-                    break
-        if not candidates:
-            return (None, None, None)
-        _, axis_idx = max(candidates, key=lambda t: t[0])
-        length_mm = extents_mm[axis_idx]
-        cross = sorted(e for j, e in enumerate(extents_mm) if j != axis_idx)
-        return (axis_idx, length_mm, cross)
-
-    def classify_profile_holes(self, cross_dims_mm: list) -> Any:
-        if len(cross_dims_mm) != 2:
-            return "VERIFICAR"
-        short, long_ = cross_dims_mm
-        is_45 = lambda v: 40.0 <= v <= 50.0
-        is_90 = lambda v: 85.0 <= v <= 95.0
-        if is_45(short) and is_45(long_):
-            return 1
-        if is_45(short) and is_90(long_):
-            return 2
-        return "VERIFICAR"
+        except: return None

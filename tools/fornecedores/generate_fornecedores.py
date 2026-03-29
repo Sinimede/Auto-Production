@@ -1,6 +1,6 @@
 # tools/fornecedores/generate_fornecedores.py
 """
-Bootstrap script — run once to generate Templates/Fornecedores.xlsx.
+Bootstrap script — run once to generate assets/Fornecedores.xlsx.
 Re-running overwrites the file; manual corrections in the Excel are lost.
 """
 import os
@@ -98,8 +98,8 @@ def write_excel(rows: list, out_path: str) -> None:
 
 def main():
     base     = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    txt_path = os.path.join(base, "Templates", "Fornecedores.txt")
-    out_path = os.path.join(base, "Templates", "Fornecedores.xlsx")
+    txt_path = os.path.join(base, "assets", "Fornecedores.txt")
+    out_path = os.path.join(base, "assets", "Fornecedores.xlsx")
 
     if not os.path.exists(txt_path):
         print(f"ERROR: source file not found: {txt_path}")

@@ -17,6 +17,11 @@ class BaseService:
             'error': None
         }
         self._is_running = False
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        """Request the service to stop."""
+        self._stop_event.set()
 
     def set_callbacks(self, 
                       on_log: Callable[[str], None] = None, 
@@ -31,9 +36,11 @@ class BaseService:
         if on_finish: self._callbacks['finish'] = on_finish
         if on_error: self._callbacks['error'] = on_error
 
-    def _log(self, message: str):
+    def _log(self, message: str, level: str = "INFO", tag: Optional[str] = None):
         if self._callbacks['log']:
-            self._callbacks['log'](message)
+            # The UI might expect a string or a LogEntry-like structure
+            # For now, we pass the parameters and let the UI handle it.
+            self._callbacks['log'](message, level, tag)
 
     def _set_progress(self, current: int, total: int):
         if self._callbacks['progress']:

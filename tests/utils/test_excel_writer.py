@@ -22,13 +22,19 @@ class TestExcelWriter(unittest.TestCase):
 
     def tearDown(self):
         if os.path.exists(self.test_dir):
-            import shutil
-            shutil.rmtree(self.test_dir)
+            import shutil, stat, time, gc
+            gc.collect()
+            def _on_error(func, path, exc_info):
+                os.chmod(path, stat.S_IWRITE)
+                time.sleep(0.05)
+                func(path)
+            shutil.rmtree(self.test_dir, onerror=_on_error)
 
     def test_find_header_row(self):
         wb = openpyxl.load_workbook(self.template_path)
         ws = wb.active
         row = find_header_row(ws)
+        wb.close()
         self.assertEqual(row, 3)
 
     def test_generate_excel_dynamic_header(self):
@@ -41,8 +47,11 @@ class TestExcelWriter(unittest.TestCase):
         
         wb = openpyxl.load_workbook(self.output_path)
         ws = wb.active
-        self.assertEqual(ws.cell(row=4, column=2).value, 2)
-        self.assertEqual(ws.cell(row=4, column=3).value, "P123")
+        val_qty = ws.cell(row=4, column=2).value
+        val_pn = ws.cell(row=4, column=3).value
+        wb.close()
+        self.assertEqual(val_qty, 2)
+        self.assertEqual(val_pn, "P123")
 
 if __name__ == '__main__':
     unittest.main()
