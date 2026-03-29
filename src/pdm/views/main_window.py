@@ -373,51 +373,39 @@ class SWATMainWindow(QMainWindow):
         dialog = CheckInDialog(file_data["name"], self)
         if dialog.exec():
             comment = dialog.get_comment()
-            
-            # Sync with SW during check-in
+
+            # Sync SW dependencies and metadata before unlocking
             if path.lower().endswith(('.sldasm', '.sldprt')):
                 try:
-                    # 1. Update references
                     deps = self.sw_client.get_dependencies(path)
-                    if deps: self.lock_controller.update_references(path, deps)
-                    
-                    # 2. Extract properties for Data Card
+                    if deps:
+                        self.lock_controller.update_references(path, deps)
                     props = self.sw_client.get_custom_properties(path)
                     if props:
-                        # Map SW props to our DB fields
                         self.sync_metadata_from_sw(path, props)
                 except Exception as e:
                     print(f"SW Sync Warning: {e}")
 
-            if self.lock_controller.unlock_file(path):
-                self.lock_controller.log_history(path, "CHECKIN", self.file_model.current_user, comment)
+            if self.lock_controller.check_in(path, self.file_model.current_user, comment):
                 try:
                     self.sw_client.set_read_only(path, True)
-                except: pass
+                except:
+                    pass
                 self.file_model.refresh()
                 QMessageBox.information(self, "Success", f"File {file_data['name']} checked-in.")
+            else:
+                QMessageBox.warning(self, "Error", "Check-In failed. Make sure the file is checked-out by you.")
 
     def sync_metadata_from_sw(self, file_path, props):
-        # Helper to push SW props to SQLite
         description = props.get("Description", props.get("Descrição", ""))
         material = props.get("Material", "")
         weight = props.get("Weight", props.get("Peso", 0))
         revision = props.get("Revision", props.get("Revisão", "00"))
         treatment = props.get("Treatment", props.get("Tratamento", ""))
-        
-        # Calculate hash for caching
         file_hash = self.sw_client.get_file_hash(file_path)
-
-        conn = self.lock_controller.db.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO file_metadata (file_path, description, material, weight, revision, treatment, last_synced_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (file_path, description, material, weight, revision, treatment, file_hash))
-            conn.commit()
-        finally:
-            conn.close()
+        self.lock_controller.save_metadata(
+            file_path, description, material, weight, revision, treatment, file_hash=file_hash
+        )
 
     def on_where_used(self, file_data):
         self.tabs.setCurrentIndex(1) # Switch to Where Used tab
@@ -427,15 +415,7 @@ class SWATMainWindow(QMainWindow):
         try:
             # 1. Hashing Check (Avoid work if file hasn't changed since last sync)
             current_hash = self.sw_client.get_file_hash(file_path)
-            conn = self.lock_controller.db.get_connection()
-            cached_hash = None
-            try:
-                cursor = conn.cursor()
-                cursor.execute("SELECT last_synced_hash FROM file_metadata WHERE file_path = ?", (file_path,))
-                row = cursor.fetchone()
-                if row: cached_hash = row[0]
-            finally:
-                conn.close()
+            cached_hash = self.lock_controller.get_cached_hash(file_path)
 
             if cached_hash and current_hash == cached_hash:
                 # No change since last sync
