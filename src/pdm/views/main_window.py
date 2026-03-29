@@ -2,7 +2,6 @@ from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFrame
 from PyQt6.QtGui import QAction, QFileSystemModel
 from PyQt6.QtCore import Qt, QDir, QSettings
 import os
-import stat
 import subprocess
 from src.pdm.views.file_table_model import FileTableModel
 from src.pdm.controllers.lock_controller import LockController
@@ -287,15 +286,15 @@ class SWATMainWindow(QMainWindow):
             if new_state == "Approved":
                 if os.path.exists(path):
                     try:
-                        os.chmod(path, stat.S_IREAD)
-                    except:
+                        self.sw_client.set_read_only(path, True)
+                    except Exception:
                         pass
                 QMessageBox.information(self, "Workflow", f"File {file_data['name']} is now APPROVED.")
             else:
                 if os.path.exists(path):
                     try:
-                        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
-                    except:
+                        self.sw_client.set_read_only(path, False)
+                    except Exception:
                         pass
             
             self.file_model.refresh()
