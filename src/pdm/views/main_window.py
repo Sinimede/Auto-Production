@@ -389,7 +389,7 @@ class SWATMainWindow(QMainWindow):
             if self.lock_controller.check_in(path, self.file_model.current_user, comment):
                 try:
                     self.sw_client.set_read_only(path, True)
-                except:
+                except Exception:
                     pass
                 self.file_model.refresh()
                 QMessageBox.information(self, "Success", f"File {file_data['name']} checked-in.")
