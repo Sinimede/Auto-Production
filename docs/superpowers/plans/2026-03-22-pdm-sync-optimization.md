@@ -25,29 +25,20 @@
     - Maintained full SolidWorks COM fallback for open files or complex dynamic properties.
 - [x] **Dependency Management:** Added `olefile` to `requirements.txt`.
 
+#### 3. PDM Evolution (Versioning & Trees)
+- [x] **Immutable Versioning:** Every Check-In now increments the internal version (1, 2, 3...) and creates a snapshot in a hidden `.versions/` directory.
+- [x] **Assembly Tree View:** Added a new tab in the Data Card to visualize the assembly hierarchy recursively from the database.
+- [x] **Batch Sync:** Implemented "Sync All" for assembly trees, allowing one-click metadata updates for hundreds of components.
+- [x] **Asynchronous Execution:** Moved the SolidWorks sync process to a background thread (`QThread` + `Worker`), ensuring the PDM UI remains responsive during long COM calls.
+
 ---
 
-### Tomorrow's Strategy (March 23, 2026)
-
-**Goal:** Expand PDM capabilities into Versioning and Assembly Tree Visualization.
+### Pending Tasks (Next Session)
 
 #### Task 1: Version Control Improvements
-- [ ] **Manual Versioning:** Implement a "New Version" button in the Data Card to increment the `revision` (e.g., from 00 to 01) and archive the old file in a `.versions/` hidden folder.
 - [ ] **Visual Diff (BOM):** Compare the BOM of the current version with a previous one to highlight added/removed components.
+- [ ] **Restore Version:** Add capability to revert the current file to an older version from the `.versions/` archive.
 
-#### Task 2: Assembly Tree View
-- [ ] **Recursive Tree Builder:** Create a new widget to display the full assembly structure (tree) by recursively calling `get_dependencies`.
-- [ ] **Batch Sync:** Implement a "Sync All" for the entire assembly tree, using the new Fast Sync logic to update the database for hundreds of files in seconds.
-
-#### Task 3: UI/UX Refinement
+#### Task 2: UI/UX Refinement
 - [ ] **Status Icons:** Add icons to the file table (e.g., a lock icon for checked-out files, a green check for approved files).
-- [ ] **Async Sync:** Move the SolidWorks Sync process to a background thread to prevent the UI from freezing during the 3.5s COM calls.
-
----
-
-### Preparations for Tomorrow
-1. **Environment:** Ensure `olefile` is installed (`pip install -r requirements.txt`).
-2. **Database:** The `file_metadata` table now includes `last_synced_hash`.
-3. **SolidWorks:** Ensure SW 2024 is running for Task 2 (Assembly Tree).
-
-**End of Session.**
+- [ ] **Data Card Validation:** Highlight missing mandatory properties (like Description or Material) in red.

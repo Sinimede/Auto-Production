@@ -12,7 +12,10 @@ class DatabaseManager:
         return cls._instance
 
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
 
     def initialize(self):
         from .schema import TABLES
