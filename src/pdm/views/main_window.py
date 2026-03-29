@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFrame, QLabel, QVBoxLayout, QTreeView, QTableView, QMenu, QMessageBox, QToolBar, QFileDialog, QLineEdit, QTabWidget, QListWidget
 from PyQt6.QtGui import QAction, QFileSystemModel
-from PyQt6.QtCore import Qt, QDir
+from PyQt6.QtCore import Qt, QDir, QSettings
 import os
 import stat
 import subprocess
@@ -10,6 +10,7 @@ from src.pdm.controllers.project_controller import ProjectController
 from src.pdm.views.dialogs import CheckInDialog, NewProjectDialog
 from src.pdm.views.history_widget import HistoryWidget
 from src.pdm.views.data_card_widget import DataCardWidget
+from src.pdm.views.search_panel import AdvancedSearchPanel
 from src.core.solidworks import SolidWorksClient
 
 class SWATMainWindow(QMainWindow):
@@ -38,6 +39,13 @@ class SWATMainWindow(QMainWindow):
         
         self.toolbar.addSeparator()
 
+        self.open_sw_act = QAction("🛠️ Open in SW", self)
+        self.open_sw_act.triggered.connect(self.on_open_request)
+        self.open_sw_act.setEnabled(False)
+        self.toolbar.addAction(self.open_sw_act)
+
+        self.toolbar.addSeparator()
+
         new_project_act = QAction("📁 New Project", self)
         new_project_act.triggered.connect(self.on_new_project)
         self.toolbar.addAction(new_project_act)
@@ -62,9 +70,10 @@ class SWATMainWindow(QMainWindow):
         
         # Project Tree
         self.tree_model = QFileSystemModel()
-        root_path = r"C:\Users\Micael\Desktop\Auto Production - Cópia"
+        settings = QSettings("SWAT", "PDM")
+        root_path = settings.value("root_path", r"C:\Users\Micael\Desktop\Auto Production - Cópia")
         if not os.path.exists(root_path):
-            root_path = os.getcwd() # Project Root Fallback
+            root_path = os.getcwd()
         
         self.tree_model.setRootPath(root_path)
         self.tree_model.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot)
@@ -91,9 +100,13 @@ class SWATMainWindow(QMainWindow):
         
         # Search Bar
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("🔍 Search files...")
+        self.search_bar.setPlaceholderText("🔍 Search files by name...")
         self.search_bar.setStyleSheet("padding: 6px; border: 1px solid #ccc; margin: 2px;")
         self.search_bar.textChanged.connect(self.on_search_changed)
+        
+        # Advanced Search Panel
+        self.adv_search_panel = AdvancedSearchPanel(self.lock_controller)
+        self.adv_search_panel.filters_changed.connect(self.on_advanced_filters_changed)
         
         self.file_model = FileTableModel(folder_path=root_path, lock_controller=self.lock_controller)
         self.file_view = QTableView()
@@ -103,11 +116,13 @@ class SWATMainWindow(QMainWindow):
         self.file_view.horizontalHeader().setStretchLastSection(True)
         self.file_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_view.customContextMenuRequested.connect(self.on_table_context_menu)
+        self.file_view.doubleClicked.connect(self.on_open_request)
         
         header_files = QLabel("  FILE VAULT")
         header_files.setStyleSheet("background-color: #34495e; color: white; font-weight: bold; padding: 5px;")
         center_layout.addWidget(header_files)
         center_layout.addWidget(self.search_bar)
+        center_layout.addWidget(self.adv_search_panel)
         center_layout.addWidget(self.file_view)
         self.splitter.addWidget(self.center_panel)
         
@@ -132,14 +147,32 @@ class SWATMainWindow(QMainWindow):
         
         # Initial Sizes
         self.splitter.setSizes([220, 700, 360])
+        
+        # StatusBar
+        self.statusBar().showMessage("Ready.")
+        self.statusBar().setStyleSheet("background-color: #f8f9fa; color: #333; border-top: 1px solid #ddd;")
+
+    def show_message(self, message, timeout=5000):
+        """Show success/info message in status bar."""
+        self.statusBar().setStyleSheet("background-color: #d4edda; color: #155724; border-top: 1px solid #c3e6cb;")
+        self.statusBar().showMessage(message, timeout)
+
+    def show_error(self, message, timeout=8000):
+        """Show error message in status bar with distinct style."""
+        self.statusBar().setStyleSheet("background-color: #f8d7da; color: #721c24; border-top: 1px solid #f5c6cb;")
+        self.statusBar().showMessage(f"ERROR: {message}", timeout)
 
     def on_search_changed(self, text):
         self.file_model.set_filter(text)
+
+    def on_advanced_filters_changed(self, filters):
+        self.file_model.set_advanced_filters(filters)
 
     def on_change_root(self):
         new_dir = QFileDialog.getExistingDirectory(self, "Select Root Directory", self.tree_model.rootPath())
         if new_dir:
             normalized_dir = os.path.normpath(new_dir)
+            QSettings("SWAT", "PDM").setValue("root_path", normalized_dir)
             self.tree_model.setRootPath(normalized_dir)
             self.tree_view.setRootIndex(self.tree_model.index(normalized_dir))
             self.project_controller.set_root_path(normalized_dir)
@@ -156,14 +189,27 @@ class SWATMainWindow(QMainWindow):
             file_data = self.file_model.files[index.row()]
             file_path = file_data['path']
             
+            # Update Toolbar
+            self.open_sw_act.setEnabled(True)
+            
             # Update Tabs
             self.data_card.load_file(file_path)
             self.history_widget.load_history(file_path)
             self.update_where_used(file_path)
         else:
+            self.open_sw_act.setEnabled(False)
             self.data_card.clear()
             self.history_widget.clear()
             self.where_used_list.clear()
+
+    def on_open_request(self):
+        """Handler for toolbar button or double-click."""
+        indices = self.file_view.selectionModel().selectedRows()
+        if not indices: return
+        
+        index = indices[0]
+        file_data = self.file_model.files[index.row()]
+        self.open_and_checkout(file_data)
 
     def update_where_used(self, file_path):
         self.where_used_list.clear()
@@ -198,6 +244,11 @@ class SWATMainWindow(QMainWindow):
         menu = QMenu()
         
         # PDM Actions
+        open_act = menu.addAction("🛠️ Open")
+        open_act.triggered.connect(lambda: self.open_and_checkout(file_data))
+        
+        menu.addSeparator()
+
         if not file_data["lock_info"]:
             check_out_act = menu.addAction("🔓 Check-Out")
             check_out_act.triggered.connect(lambda: self.check_out_file(file_data))
@@ -235,9 +286,17 @@ class SWATMainWindow(QMainWindow):
             
             if new_state == "Approved":
                 if os.path.exists(path):
-                    try: os.chmod(path, stat.S_IREAD)
-                    except: pass
+                    try:
+                        os.chmod(path, stat.S_IREAD)
+                    except:
+                        pass
                 QMessageBox.information(self, "Workflow", f"File {file_data['name']} is now APPROVED.")
+            else:
+                if os.path.exists(path):
+                    try:
+                        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+                    except:
+                        pass
             
             self.file_model.refresh()
         else:
@@ -257,12 +316,58 @@ class SWATMainWindow(QMainWindow):
         path = file_data["path"]
         if self.lock_controller.lock_file(path):
             try:
-                os.chmod(path, stat.S_IWRITE)
+                self.sw_client.set_read_only(path, False)
                 self.file_model.refresh()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not set file to writable: {str(e)}")
         else:
             QMessageBox.warning(self, "Locked", "File is already locked by another user.")
+
+    def open_and_checkout(self, file_data):
+        """
+        PDM Logic for opening files:
+        - Free -> Auto Check-Out + Open Editable
+        - Locked by Me -> Open Editable
+        - Locked by Other -> Warning + Open Read-Only
+        """
+        path = os.path.normpath(file_data["path"])
+        lock_info = self.lock_controller.is_locked(path)
+        current_user = self.file_model.current_user
+
+        # 1. Lock Handling
+        if not lock_info:
+            # FREE -> Attempt Auto Check-Out
+            if self.lock_controller.lock_file(path):
+                try:
+                    self.sw_client.set_read_only(path, False)
+                    self.file_model.refresh()
+                    print(f"Auto Check-Out performed for {file_data['name']}")
+                except Exception as e:
+                    print(f"Warning: Could not set file to writable: {e}")
+            else:
+                # Race condition: someone locked it in the last millisecond
+                QMessageBox.warning(self, "Locked", "File was just locked by another user. Opening Read-Only.")
+                try: self.sw_client.set_read_only(path, True)
+                except: pass
+        
+        elif lock_info["user_id"] == current_user:
+            # LOCKED BY ME -> Ensure writable
+            try: self.sw_client.set_read_only(path, False)
+            except: pass
+        
+        else:
+            # LOCKED BY OTHER -> Warning
+            QMessageBox.warning(self, "Locked by " + lock_info["user_id"], 
+                                f"This file is currently checked-out by {lock_info['user_id']}.\n"
+                                "It will be opened in READ-ONLY mode.")
+            try: self.sw_client.set_read_only(path, True)
+            except: pass
+
+        # 2. Open in SolidWorks (Robust launch)
+        try:
+            self.sw_client.launch_sw_with_file(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to launch SolidWorks: {str(e)}")
 
     def check_in_file(self, file_data):
         path = os.path.normpath(file_data["path"])
@@ -280,7 +385,7 @@ class SWATMainWindow(QMainWindow):
                     # 2. Extract properties for Data Card
                     props = self.sw_client.get_custom_properties(path)
                     if props:
-                        # Map SW props to our DB fields (This part needs a helper)
+                        # Map SW props to our DB fields
                         self.sync_metadata_from_sw(path, props)
                 except Exception as e:
                     print(f"SW Sync Warning: {e}")
@@ -288,7 +393,7 @@ class SWATMainWindow(QMainWindow):
             if self.lock_controller.unlock_file(path):
                 self.lock_controller.log_history(path, "CHECKIN", self.file_model.current_user, comment)
                 try:
-                    if os.path.exists(path): os.chmod(path, stat.S_IREAD)
+                    self.sw_client.set_read_only(path, True)
                 except: pass
                 self.file_model.refresh()
                 QMessageBox.information(self, "Success", f"File {file_data['name']} checked-in.")
