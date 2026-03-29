@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QLabel, QPushButton, QComboBox, QGroupBox, QHBoxLayout, QMessageBox
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QDoubleValidator
 import os
 
 class DataCardWidget(QWidget):
@@ -36,16 +37,26 @@ class DataCardWidget(QWidget):
         self.form_layout = QFormLayout()
         
         self.txt_description = QLineEdit()
+        self.txt_description.textChanged.connect(self.validate_inputs)
+        
         self.txt_material = QLineEdit()
+        
         self.txt_weight = QLineEdit()
+        # Validator: Allow numbers with dot/comma, positive only
+        weight_validator = QDoubleValidator(0.0, 9999.0, 3)
+        weight_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.txt_weight.setValidator(weight_validator)
+        
         self.txt_revision = QLineEdit()
         self.txt_revision.setPlaceholderText("e.g. 00, A, B")
+        self.txt_revision.textChanged.connect(self.validate_inputs)
+        
         self.txt_treatment = QLineEdit()
         
-        self.form_layout.addRow("Description:", self.txt_description)
+        self.form_layout.addRow("Description *:", self.txt_description)
         self.form_layout.addRow("Material:", self.txt_material)
         self.form_layout.addRow("Weight (kg):", self.txt_weight)
-        self.form_layout.addRow("Revision:", self.txt_revision)
+        self.form_layout.addRow("Revision *:", self.txt_revision)
         self.form_layout.addRow("Treatment:", self.txt_treatment)
         
         group_props.setLayout(self.form_layout)
@@ -75,6 +86,25 @@ class DataCardWidget(QWidget):
         
         self.set_editable(False)
 
+    def validate_inputs(self):
+        """Dynamic visual feedback for mandatory fields."""
+        if not self.is_editable: return
+        
+        valid_style = "border: 1px solid #ccc; background-color: #fff;"
+        error_style = "border: 2px solid #e74c3c; background-color: #fff;"
+        
+        desc_valid = len(self.txt_description.text().strip()) > 0
+        rev_valid = len(self.txt_revision.text().strip()) > 0
+        
+        self.txt_description.setStyleSheet(valid_style if desc_valid else error_style)
+        self.txt_revision.setStyleSheet(valid_style if rev_valid else error_style)
+        
+        self.btn_save.setEnabled(desc_valid and rev_valid)
+        if desc_valid and rev_valid:
+            self.btn_save.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px;")
+        else:
+            self.btn_save.setStyleSheet("background-color: #95a5a6; color: white; font-weight: bold; border-radius: 4px;")
+
     def set_editable(self, editable):
         self.is_editable = editable
         self.txt_description.setReadOnly(not editable)
@@ -82,12 +112,15 @@ class DataCardWidget(QWidget):
         self.txt_weight.setReadOnly(not editable)
         self.txt_revision.setReadOnly(not editable)
         self.txt_treatment.setReadOnly(not editable)
-        self.btn_save.setEnabled(editable)
         
-        # Style adjustment
-        style = "background-color: #fff;" if editable else "background-color: #f5f5f5; color: #666;"
-        for widget in [self.txt_description, self.txt_material, self.txt_weight, self.txt_revision, self.txt_treatment]:
-            widget.setStyleSheet(style)
+        if not editable:
+            self.btn_save.setEnabled(False)
+            self.btn_save.setStyleSheet("background-color: #bdc3c7; color: #7f8c8d; font-weight: bold; border-radius: 4px;")
+            style = "background-color: #f5f5f5; color: #666; border: 1px solid #ddd;"
+            for widget in [self.txt_description, self.txt_material, self.txt_weight, self.txt_revision, self.txt_treatment]:
+                widget.setStyleSheet(style)
+        else:
+            self.validate_inputs()
 
     def load_file(self, file_path):
         self.current_file = file_path
@@ -101,7 +134,7 @@ class DataCardWidget(QWidget):
         self.set_editable(is_owner)
         
         # 2. Load metadata from DB
-        metadata = self.get_metadata_from_db(file_path)
+        metadata = self.lock_controller.get_metadata(file_path)
         if metadata:
             self.txt_description.setText(metadata.get("description", ""))
             self.txt_material.setText(metadata.get("material", ""))
@@ -114,24 +147,6 @@ class DataCardWidget(QWidget):
                 widget.clear()
             self.txt_revision.setText("00")
 
-    def get_metadata_from_db(self, file_path):
-        conn = self.lock_controller.db.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT description, material, weight, revision, treatment FROM file_metadata WHERE file_path = ?", (file_path,))
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "description": row[0],
-                    "material": row[1],
-                    "weight": row[2],
-                    "revision": row[3],
-                    "treatment": row[4]
-                }
-            return None
-        finally:
-            conn.close()
-
     def on_sync(self):
         if self.current_file:
             self.sync_requested.emit(self.current_file)
@@ -139,33 +154,23 @@ class DataCardWidget(QWidget):
     def on_save(self):
         if not self.current_file:
             return
-            
-        data = {
-            "description": self.txt_description.text(),
-            "material": self.txt_material.text(),
-            "weight": self.txt_weight.text(),
-            "revision": self.txt_revision.text(),
-            "treatment": self.txt_treatment.text()
-        }
-        
-        # Update DB
-        conn = self.lock_controller.db.get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO file_metadata 
-                (file_path, description, material, weight, revision, treatment, last_updated) 
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (self.current_file, data["description"], data["material"], data["weight"], data["revision"], data["treatment"]))
-            conn.commit()
-            
-            self.lock_controller.log_history(self.current_file, "METADATA_UPDATE", os.getlogin(), "Updated Data Card properties")
+
+        description = self.txt_description.text()
+        material = self.txt_material.text()
+        weight = self.txt_weight.text()
+        revision = self.txt_revision.text()
+        treatment = self.txt_treatment.text()
+
+        if self.lock_controller.save_metadata(
+            self.current_file, description, material, weight, revision, treatment
+        ):
+            self.lock_controller.log_history(
+                self.current_file, "METADATA_UPDATE", os.getlogin(), "Updated Data Card properties"
+            )
             QMessageBox.information(self, "Success", "Data Card saved successfully.")
             self.metadata_saved.emit(self.current_file)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save metadata: {str(e)}")
-        finally:
-            conn.close()
+        else:
+            QMessageBox.critical(self, "Error", "Failed to save metadata.")
 
     def clear(self):
         self.current_file = None
