@@ -59,5 +59,31 @@ class TestLockController(unittest.TestCase):
         self.assertTrue(self.controller.set_status(self.test_file, "In Design"))
         self.assertEqual(self.controller.get_status(self.test_file), "In Design")
 
+    def test_is_locked_with_absolute_path(self):
+        """is_locked must normalize so relative and absolute paths resolve the same."""
+        rel_path = "test_file.sldprt"
+        abs_path = os.path.normpath(os.path.abspath(rel_path))
+        self.controller.lock_file(rel_path, self.test_user)
+        # Looking up by abs path must find the lock inserted with rel path
+        self.assertIsNotNone(self.controller.is_locked(abs_path))
+
+    def test_unlock_with_absolute_path(self):
+        """unlock_file must normalize so it can find the row inserted with a relative path."""
+        rel_path = "test_file.sldprt"
+        abs_path = os.path.normpath(os.path.abspath(rel_path))
+        self.controller.lock_file(rel_path, self.test_user)
+        self.assertTrue(self.controller.unlock_file(abs_path, self.test_user))
+
+    def test_log_history_with_version(self):
+        """log_history must store version when provided."""
+        self.controller.log_history(self.test_file, "CHECKIN", self.test_user, "comment", version="3")
+        conn = self.controller.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT version FROM history WHERE action = 'CHECKIN'")
+        row = cursor.fetchone()
+        conn.close()
+        self.assertEqual(row[0], "3")
+
+
 if __name__ == "__main__":
     unittest.main()
