@@ -1,5 +1,5 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QLabel, QPushButton, QComboBox, QGroupBox, QHBoxLayout, QMessageBox
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QLabel, QPushButton, QGroupBox, QHBoxLayout, QMessageBox
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
 import os
 
@@ -146,6 +146,7 @@ class DataCardWidget(QWidget):
             for widget in [self.txt_description, self.txt_material, self.txt_weight, self.txt_revision, self.txt_treatment]:
                 widget.clear()
             self.txt_revision.setText("00")
+        self.validate_inputs()
 
     def on_sync(self):
         if self.current_file:
