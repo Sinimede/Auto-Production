@@ -98,4 +98,5 @@ def generate_excel(template_path: str, rows: list, output_path: str,
             tbl.ref = f"{m.group(1)}{effective_header_row}:{m.group(2)}{last_row}"
 
     wb.save(output_path)
+    wb.close()
     return effective_header_row
