@@ -2,6 +2,7 @@ import sys
 import os
 import unittest
 import sqlite3
+import tempfile
 
 # Adicionar src ao path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
@@ -118,14 +119,12 @@ class TestLockController(unittest.TestCase):
         )
         self.assertEqual(self.controller.get_cached_hash(self.test_file), "abc123")
 
-    def test_save_metadata_without_hash_does_not_clear_hash(self):
+    def test_save_metadata_without_hash_clears_existing_hash(self):
         self.controller.save_metadata(
             self.test_file, "x", "y", 0, "00", "", file_hash="abc123"
         )
-        # Save again without hash argument — hash should be overwritten with None
-        # (this is expected SQLite INSERT OR REPLACE behavior)
+        # Save again without hash argument — hash is cleared (INSERT OR REPLACE behavior)
         self.controller.save_metadata(self.test_file, "x", "y", 0, "00", "")
-        # Hash is now None — acceptable
         result = self.controller.get_cached_hash(self.test_file)
         self.assertIsNone(result)
 
@@ -181,7 +180,6 @@ class TestLockController(unittest.TestCase):
         self.assertEqual(rows[1][0], "2")
 
     def test_check_in_creates_versions_folder(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = os.path.join(tmpdir, "part.sldprt")
             with open(file_path, "w") as f:
@@ -195,7 +193,6 @@ class TestLockController(unittest.TestCase):
             self.assertIn("_v01", files[0])
 
     def test_check_in_version_filename_increments(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = os.path.join(tmpdir, "part.sldprt")
             for i in range(1, 3):
